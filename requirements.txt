@@ -1,0 +1,8 @@
+fastapi==0.117.1
+sqlalchemy==2.0.43
+dotenv==0.9.9
+asyncpg==0.30.0
+pydantic[email]==2.11.9
+bcrypt==5.0.0
+uvicorn==0.37.0
+greenlet==3.2.4

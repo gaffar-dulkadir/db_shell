@@ -1,0 +1,71 @@
+# DTO exports for Chat Marketplace Service
+
+from .base_dto import BaseDto
+from .auth_dto import *
+from .chat_dto import *
+from .marketplace_dto import *
+
+__all__ = [
+    "BaseDto",
+    # Auth DTOs
+    "UserStatus",
+    "UserCreateDto",
+    "UserUpdateDto", 
+    "UserResponseDto",
+    "UserWithProfileDto",
+    "UserProfileCreateDto",
+    "UserProfileUpdateDto",
+    "UserProfileResponseDto",
+    "UserSettingsCreateDto",
+    "UserSettingsUpdateDto",
+    "UserSettingsResponseDto",
+    "LoginDto",
+    "TokenResponseDto",
+    "PasswordChangeDto",
+    "PasswordResetRequestDto",
+    "PasswordResetDto",
+    "UserListResponseDto",
+    # Chat DTOs
+    "ConversationStatus",
+    "MessageType",
+    "ConversationCreateDto",
+    "ConversationUpdateDto",
+    "ConversationResponseDto",
+    "ConversationWithMessagesDto",
+    "ConversationListResponseDto",
+    "MessageCreateDto",
+    "MessageUpdateDto",
+    "MessageResponseDto",
+    "MessageWithDocumentsDto",
+    "MessageListResponseDto",
+    "DocumentCreateDto",
+    "DocumentResponseDto",
+    "DocumentListResponseDto",
+    "MemoryHistoryCreateDto",
+    "MemoryHistoryUpdateDto",
+    "MemoryHistoryResponseDto",
+    "MemoryHistoryListResponseDto",
+    "ConversationStatsDto",
+    "MessageStatsDto",
+    "ConversationSearchDto",
+    "MessageSearchDto",
+    # Marketplace DTOs
+    "BotStatus",
+    "BotCategoryCreateDto",
+    "BotCategoryUpdateDto",
+    "BotCategoryResponseDto",
+    "BotCategoryWithBotsDto",
+    "BotCategoryListResponseDto",
+    "BotCreateDto",
+    "BotUpdateDto",
+    "BotResponseDto",
+    "BotWithCategoryDto",
+    "BotListResponseDto",
+    "BotDetailDto",
+    "BotStatsDto",
+    "CategoryStatsDto",
+    "BotSearchDto",
+    "CategorySearchDto",
+    "BotCapabilityDto",
+    "BotConfigurationDto"
+]
