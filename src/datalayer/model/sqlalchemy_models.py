@@ -6,7 +6,7 @@ Schemas: auth, chats, marketplace
 from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, Boolean, 
+    Column, Integer, String, Text, DateTime, Boolean, Float,
     ForeignKey, JSON, Enum as SQLEnum, TIMESTAMP, func
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -61,7 +61,12 @@ class User(Base):
     )
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     user_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    user_surname: Mapped[str] = mapped_column(String(255), nullable=False)
+    user_surname: Mapped[Optional[str]] = mapped_column(String(255))
+    username: Mapped[Optional[str]] = mapped_column(String(100), unique=True)
+    phone_number: Mapped[Optional[str]] = mapped_column(String(20))
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default='active', nullable=False)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
     user_created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),
@@ -81,55 +86,6 @@ class User(Base):
     @email.setter
     def email(self, value: str):
         self.user_email = value
-    
-    @property
-    def username(self) -> Optional[str]:
-        # Combine user_name and user_surname as username fallback
-        return f"{self.user_name}_{self.user_surname}".lower().replace(" ", "_")
-    
-    @username.setter
-    def username(self, value: Optional[str]):
-        # Split username into name and surname parts if provided
-        if value:
-            parts = value.split('_', 1)
-            self.user_name = parts[0] if parts else value
-            self.user_surname = parts[1] if len(parts) > 1 else ""
-        else:
-            # Set default values if username is None
-            self.user_name = "user"
-            self.user_surname = ""
-    
-    @property
-    def phone_number(self) -> Optional[str]:
-        return None  # Not available in current schema
-    
-    @phone_number.setter
-    def phone_number(self, value: Optional[str]):
-        pass  # Not available in current schema, ignore setter
-    
-    @property
-    def is_verified(self) -> bool:
-        return True  # Default to verified for existing users
-    
-    @is_verified.setter
-    def is_verified(self, value: bool):
-        pass  # Not available in current schema, ignore setter
-    
-    @property
-    def status(self) -> UserStatus:
-        return UserStatus.ACTIVE  # Default to active
-    
-    @status.setter
-    def status(self, value: UserStatus):
-        pass  # Not available in current schema, ignore setter
-    
-    @property
-    def last_login_at(self) -> Optional[datetime]:
-        return None  # Not tracked in current schema
-    
-    @last_login_at.setter
-    def last_login_at(self, value: Optional[datetime]):
-        pass  # Not available in current schema, ignore setter
     
     @property
     def created_at(self) -> datetime:
@@ -306,6 +262,8 @@ class Conversation(Base):
     default_system_prompt: Mapped[Optional[str]] = mapped_column(Text)
     default_knowledge: Mapped[Optional[str]] = mapped_column(Text)
     memory: Mapped[Optional[str]] = mapped_column(Text)
+    custom_metadata: Mapped[Optional[dict]] = mapped_column(JSON)
+    last_message_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
     conversation_created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),
@@ -359,17 +317,9 @@ class Conversation(Base):
         return self.conversation_updated_at
     
     @property
+    @property
     def description(self) -> Optional[str]:
         return None  # Not available in current schema
-    
-    @property
-    def custom_metadata(self) -> Optional[dict]:
-        return None  # Not available in current schema
-    
-    @property
-    def last_message_at(self) -> Optional[datetime]:
-        return None  # Not available in current schema
-    
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="conversations")
     bot: Mapped[Optional["Bot"]] = relationship("Bot", back_populates="conversations")
@@ -403,6 +353,10 @@ class Message(Base):
         UUID(as_uuid=False),
         ForeignKey('marketplace.bots.bot_id', ondelete='CASCADE')
     )
+    content: Mapped[Optional[str]] = mapped_column(Text)
+    custom_metadata: Mapped[Optional[dict]] = mapped_column(JSON)
+    is_edited: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),
@@ -451,22 +405,6 @@ class Message(Base):
     def message_type(self) -> MessageType:
         return MessageType.TEXT  # Default to text
     
-    @property
-    def content(self) -> str:
-        return ""  # Not available in current schema
-    
-    @property
-    def custom_metadata(self) -> Optional[dict]:
-        return None  # Not available in current schema
-    
-    @property
-    def is_edited(self) -> bool:
-        return False  # Not available in current schema
-    
-    @property
-    def is_deleted(self) -> bool:
-        return False  # Not available in current schema
-    
     # Relationships
     conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="messages")
     parent_message: Mapped[Optional["Message"]] = relationship("Message", remote_side="Message.message_id")
@@ -508,6 +446,8 @@ class Document(Base):
         nullable=False,
         index=True
     )
+    file_url: Mapped[Optional[str]] = mapped_column(String(500))
+    custom_metadata: Mapped[Optional[dict]] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),
@@ -571,14 +511,6 @@ class Document(Base):
     @property
     def file_type(self) -> str:
         return self.document_mime_type.split('/')[0] if '/' in self.document_mime_type else 'unknown'
-    
-    @property
-    def file_url(self) -> str:
-        return ""  # Not available in current schema
-    
-    @property
-    def custom_metadata(self) -> Optional[dict]:
-        return None  # Not available in current schema
     
     # Relationships
     message: Mapped["Message"] = relationship("Message", back_populates="documents")
@@ -661,6 +593,10 @@ class BotCategory(Base):
         unique=True
     )
     category_description: Mapped[Optional[str]] = mapped_column(Text)
+    icon: Mapped[Optional[str]] = mapped_column(Text)
+    color: Mapped[Optional[str]] = mapped_column(String(7))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),
@@ -689,22 +625,6 @@ class BotCategory(Base):
     def description(self, value: Optional[str]):
         self.category_description = value
     
-    @property
-    def icon(self) -> Optional[str]:
-        return None  # Not available in current schema
-    
-    @property
-    def color(self) -> Optional[str]:
-        return None  # Not available in current schema
-    
-    @property
-    def is_active(self) -> bool:
-        return True  # Default to active
-    
-    @property
-    def sort_order(self) -> int:
-        return 0  # Default sort order
-    
     # Relationships
     bots: Mapped[List["Bot"]] = relationship("Bot", back_populates="category")
 
@@ -728,6 +648,7 @@ class Bot(Base):
         nullable=False,
         unique=True
     )
+    display_name: Mapped[Optional[str]] = mapped_column(String(150))
     bot_description: Mapped[Optional[str]] = mapped_column(Text)
     bot_avatar_url: Mapped[Optional[str]] = mapped_column(Text)
     bot_status: Mapped[str] = mapped_column(
@@ -736,6 +657,12 @@ class Bot(Base):
         nullable=False
     )
     is_public: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_premium: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    rating: Mapped[Optional[float]] = mapped_column(Float)
+    total_conversations: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    capabilities: Mapped[Optional[dict]] = mapped_column(JSON)
+    configuration: Mapped[Optional[dict]] = mapped_column(JSON)
     bot_version: Mapped[str] = mapped_column(
         String(50),
         default='1.0'
@@ -777,14 +704,6 @@ class Bot(Base):
         self.bot_name = value
     
     @property
-    def display_name(self) -> str:
-        return self.bot_name  # Use bot_name as display_name
-    
-    @display_name.setter
-    def display_name(self, value: str):
-        pass  # Cannot set display_name separately in this schema
-    
-    @property
     def description(self) -> Optional[str]:
         return self.bot_description
     
@@ -816,30 +735,6 @@ class Bot(Base):
     def created_by(self, value: Optional[str]):
         if value:
             self.bot_owner_id = value
-    
-    @property
-    def is_featured(self) -> bool:
-        return False  # Not available in current schema
-    
-    @property
-    def is_premium(self) -> bool:
-        return False  # Not available in current schema
-    
-    @property
-    def rating(self) -> Optional[float]:
-        return 0.0  # Not available in current schema
-    
-    @property
-    def total_conversations(self) -> int:
-        return 0  # Not available in current schema
-    
-    @property
-    def capabilities(self) -> Optional[dict]:
-        return None  # Not available in current schema
-    
-    @property
-    def configuration(self) -> Optional[dict]:
-        return None  # Not available in current schema
     
     # Relationships
     category: Mapped["BotCategory"] = relationship("BotCategory", back_populates="bots")

@@ -47,14 +47,16 @@ class UserService:
             # Hash password
             password_hash = self._hash_password(user_data.password)
             
-            # Create user
-            user = User(
-                email=user_data.email.lower(),
-                password_hash=password_hash,
-                username=user_data.username,
-                phone_number=user_data.phone_number,
-                status=UserStatus.ACTIVE
-            )
+            # Create user with proper field mapping
+            user = User()
+            user.user_email = user_data.email.lower()
+            user.password_hash = password_hash
+            user.user_name = user_data.user_name  # First name
+            user.user_surname = user_data.user_surname  # Last name
+            user.username = user_data.username  # Unique username
+            user.phone_number = user_data.phone_number
+            user.is_verified = False  # Default to unverified
+            user.status = 'active'  # Default to active
             
             saved_user = await self.user_repo.save(user)
             
@@ -92,8 +94,9 @@ class UserService:
                 logger.warning(f"⚠️ User account is not active: {login_data.email}")
                 return None
             
-            # Update last login
-            await self.user_repo.update_last_login(user.user_id)
+            # Update last login (will update user_updated_at as proxy)
+            user.user_updated_at = datetime.utcnow()
+            await self.user_repo.save(user)
             await self.session.commit()
             
             logger.info(f"✅ User authenticated successfully: {user.user_id}")
@@ -350,13 +353,15 @@ class UserService:
         """Convert User model to UserResponseDto"""
         return UserResponseDto(
             user_id=user.user_id,
-            email=user.email,
+            email=user.user_email,
+            user_name=user.user_name,
+            user_surname=user.user_surname,
             username=user.username,
             phone_number=user.phone_number,
             is_verified=user.is_verified,
-            status=user.status,
-            created_at=user.created_at,
-            updated_at=user.updated_at,
+            status=UserStatus(user.status),
+            created_at=user.user_created_at,
+            updated_at=user.user_updated_at,
             last_login_at=user.last_login_at
         )
     

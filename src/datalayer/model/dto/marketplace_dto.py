@@ -18,7 +18,7 @@ class BotStatus(str, Enum):
 class BotCategoryCreateDto(BaseDto):
     name: str = Field(..., min_length=1, max_length=100, description="Category name")
     description: Optional[str] = Field(None, max_length=1000, description="Category description")
-    icon: Optional[str] = Field(None, max_length=100, description="Category icon")
+    icon: Optional[str] = Field(None, description="Category icon (URL or SVG content)")
     color: Optional[str] = Field(None, min_length=7, max_length=7, description="Hex color code")
     is_active: bool = Field(default=True)
     sort_order: int = Field(default=0, ge=0, description="Sort order for display")
@@ -36,7 +36,7 @@ class BotCategoryCreateDto(BaseDto):
 class BotCategoryUpdateDto(BaseDto):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=1000)
-    icon: Optional[str] = Field(None, max_length=100)
+    icon: Optional[str] = Field(None, description="Category icon (URL or SVG content)")
     color: Optional[str] = Field(None, min_length=7, max_length=7)
     is_active: Optional[bool] = None
     sort_order: Optional[int] = Field(None, ge=0)

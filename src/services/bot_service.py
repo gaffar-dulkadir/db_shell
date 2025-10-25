@@ -387,14 +387,13 @@ class BotService:
                 raise ValueError(f"Category with name {category_data.name} already exists")
             
             # Create category
-            category = BotCategory(
-                name=category_data.name,
-                description=category_data.description,
-                icon=category_data.icon,
-                color=category_data.color,
-                is_active=category_data.is_active,
-                sort_order=category_data.sort_order
-            )
+            category = BotCategory()
+            category.category_name = category_data.name
+            category.category_description = category_data.description
+            category.icon = category_data.icon
+            category.color = category_data.color
+            category.is_active = category_data.is_active
+            category.sort_order = category_data.sort_order
             
             saved_category = await self.category_repo.save(category)
             await self.session.commit()
@@ -503,19 +502,19 @@ class BotService:
         )
     
     @staticmethod
+    @staticmethod
     def _category_to_dto(category: BotCategory) -> BotCategoryResponseDto:
         """Convert BotCategory model to BotCategoryResponseDto"""
         return BotCategoryResponseDto(
             category_id=category.category_id,
-            name=category.name,
-            description=category.description,
+            name=category.category_name,
+            description=category.category_description,
             icon=category.icon,
             color=category.color,
             is_active=category.is_active,
             sort_order=category.sort_order,
-            bot_count=len(category.bots) if hasattr(category, 'bots') and category.bots else 0,
+            bot_count=0,  # Avoid async call in static method
             created_at=category.created_at,
             updated_at=category.updated_at
         )
-
 __all__ = ["BotService"]

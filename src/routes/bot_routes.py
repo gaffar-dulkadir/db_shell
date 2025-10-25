@@ -64,7 +64,7 @@ async def create_category(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"❌ API: Category creation failed: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create category")
+        raise HTTPException(status_code=500, detail=f"Failed to create category: {str(e)}")
 
 @categories_router.get(
     "/",

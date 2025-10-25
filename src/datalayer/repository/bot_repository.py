@@ -67,7 +67,7 @@ class BotCategoryRepository(AsyncBaseRepository[BotCategory]):
     
     async def get_by_name(self, name: str) -> Optional[BotCategory]:
         """Get category by name"""
-        stmt = select(BotCategory).where(BotCategory.name == name)
+        stmt = select(BotCategory).where(BotCategory.category_name == name)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
     

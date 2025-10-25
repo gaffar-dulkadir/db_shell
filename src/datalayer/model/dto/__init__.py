@@ -20,7 +20,6 @@ __all__ = [
     "UserSettingsUpdateDto",
     "UserSettingsResponseDto",
     "LoginDto",
-    "TokenResponseDto",
     "PasswordChangeDto",
     "PasswordResetRequestDto",
     "PasswordResetDto",

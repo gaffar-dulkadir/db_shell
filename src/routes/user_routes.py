@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from services.user_service import UserService
 from datalayer.model.dto.auth_dto import (
     UserCreateDto, UserUpdateDto, UserResponseDto, UserWithProfileDto,
-    LoginDto, TokenResponseDto, PasswordChangeDto, PasswordResetRequestDto,
+    LoginDto, PasswordChangeDto, PasswordResetRequestDto,
     PasswordResetDto, UserListResponseDto, UserStatus
 )
 
@@ -59,21 +59,25 @@ async def register_user(
 @router.post(
     "/login",
     response_model=UserResponseDto,
+    status_code=status.HTTP_200_OK,
     summary="User login",
-    description="Authenticate user with email and password"
+    description="Authenticate user with email and password. Returns user information on successful authentication."
 )
 async def login_user(
     login_data: LoginDto,
     user_service: UserService = Depends(get_user_service)
 ):
-    """Authenticate user"""
+    """Authenticate user with email and password"""
     logger.info(f"🚀 API: Login requested for: {login_data.email}")
     
     try:
         user = await user_service.authenticate_user(login_data)
         if not user:
             logger.warning(f"⚠️ API: Invalid credentials for: {login_data.email}")
-            raise HTTPException(status_code=401, detail="Invalid email or password")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password"
+            )
         
         logger.info(f"✅ API: User authenticated successfully: {user.user_id}")
         return user
@@ -82,7 +86,10 @@ async def login_user(
         raise
     except Exception as e:
         logger.error(f"❌ API: Authentication failed: {e}")
-        raise HTTPException(status_code=500, detail="Authentication failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication failed"
+        )
 
 @router.get(
     "/me",
