@@ -199,37 +199,65 @@ class BotRepository(AsyncBaseRepository[Bot]):
         offset: int = 0
     ) -> List[Bot]:
         """Search bots with advanced filters"""
-        stmt = (
-            select(Bot)
-            .where(
+        stmt = select(Bot)
+        
+        # Apply search filter if query is provided
+        if query:
+            stmt = stmt.where(
                 or_(
-                    Bot.name.ilike(f"%{query}%"),
+                    Bot.bot_name.ilike(f"%{query}%"),
                     Bot.display_name.ilike(f"%{query}%"),
-                    Bot.description.ilike(f"%{query}%")
+                    Bot.bot_description.ilike(f"%{query}%")
                 )
             )
-        )
+            print(f"Searching for query: {query}")
         
         # Apply filters
         if category_id:
-            stmt = stmt.where(Bot.category_id == category_id)
+            stmt = stmt.where(Bot.bot_category_id == category_id)  # Using actual column name
+            print(f"Filtering by category: {category_id}")
         
         if status:
-            stmt = stmt.where(Bot.status == status)
+            stmt = stmt.where(Bot.bot_status == status.value)  # Using actual column and enum value
+            print(f"Filtering by status: {status.value}")
         else:
-            stmt = stmt.where(Bot.status == BotStatus.ACTIVE)
+            stmt = stmt.where(Bot.bot_status == BotStatus.ACTIVE.value)  # Using actual column and enum value
+            print("Filtering by default status: ACTIVE")
         
         if is_featured is not None:
-            stmt = stmt.where(Bot.is_featured == is_featured)
+            stmt = stmt.where(Bot.is_featured.is_(is_featured))  # Using is_() for boolean
+            print(f"Filtering by featured: {is_featured}")
         
         if is_premium is not None:
-            stmt = stmt.where(Bot.is_premium == is_premium)
+            stmt = stmt.where(Bot.is_premium.is_(is_premium))  # Using is_() for boolean
+            print(f"Filtering by premium: {is_premium}")
         
         if min_rating is not None:
             stmt = stmt.where(Bot.rating >= min_rating)
+            print(f"Filtering by min rating: {min_rating}")
+        
+        # Map property names to actual column names
+        column_mapping = {
+            'name': 'bot_name',
+            'description': 'bot_description',
+            'category_id': 'bot_category_id',
+            'status': 'bot_status',
+            'avatar_url': 'bot_avatar_url'
+        }
+        
+        # Get the actual column name
+        actual_sort_by = column_mapping.get(sort_by, sort_by)
+        
+        # Get the column to sort by
+        try:
+            sort_column = getattr(Bot, actual_sort_by)
+            # Ensure it's a column attribute
+            if not hasattr(sort_column, 'asc'):
+                sort_column = Bot.display_name  # fallback to display_name
+        except AttributeError:
+            sort_column = Bot.display_name  # fallback to display_name
         
         # Apply sorting
-        sort_column = getattr(Bot, sort_by, Bot.display_name)
         if sort_order.lower() == "desc":
             stmt = stmt.order_by(desc(sort_column))
         else:
@@ -237,8 +265,13 @@ class BotRepository(AsyncBaseRepository[Bot]):
         
         stmt = stmt.limit(limit).offset(offset)
         
+        # Print the generated SQL query for debugging
+        print(f"\nGenerated SQL: {str(stmt.compile(compile_kwargs={'literal_binds': True}))}\n")
+        
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        bots = list(result.scalars().all())
+        print(f"Found {len(bots)} bots")
+        return bots
     
     async def get_by_status(self, status: BotStatus, limit: int = 100, offset: int = 0) -> List[Bot]:
         """Get bots by status"""
@@ -334,13 +367,30 @@ class BotRepository(AsyncBaseRepository[Bot]):
         
         # Get bots by category
         category_stats_stmt = (
-            select(BotCategory.name, func.count(Bot.bot_id))
-            .outerjoin(Bot, BotCategory.category_id == Bot.category_id)
-            .where(or_(Bot.status == BotStatus.ACTIVE, Bot.status.is_(None)))
-            .group_by(BotCategory.category_id, BotCategory.name)
+            select(
+                BotCategory.category_name.label('category_name'),
+                func.count(Bot.bot_id).label('bot_count')
+            )
+            .join(
+                Bot,
+                and_(
+                    BotCategory.category_id == Bot.bot_category_id,
+                    Bot.bot_status == BotStatus.ACTIVE.value
+                ),
+                isouter=True
+            )
+            .where(BotCategory.is_active.is_(True))
+            .group_by(BotCategory.category_id, BotCategory.category_name)
         )
-        category_stats_result = await self.session.execute(category_stats_stmt)
-        bots_by_category = {row[0]: row[1] for row in category_stats_result}
+        
+        try:
+            category_stats_result = await self.session.execute(category_stats_stmt)
+            results = category_stats_result.all()
+            bots_by_category = {row[0]: row[1] for row in results}
+        except Exception as e:
+            print(f"Error in category stats query: {e}")
+            print(f"Generated SQL: {str(category_stats_stmt.compile(compile_kwargs={'literal_binds': True}))}")
+            bots_by_category = {}
         
         return {
             "total_bots": total_result.scalar() or 0,

@@ -412,10 +412,16 @@ class BotService:
         
         try:
             category = await self.category_repo.get_by_id(category_id)
-            return self._category_to_dto(category) if category else None
+            if not category:
+                logger.warning(f"⚠️ Category not found: {category_id}")
+                return None
+                
+            category_dto = self._category_to_dto(category)
+            logger.debug(f"✅ Category found: {category_dto}")
+            return category_dto
             
         except Exception as e:
-            logger.error(f"❌ Failed to get category: {e}")
+            logger.error(f"❌ Failed to get category: {e}", exc_info=True)
             raise
     
     async def get_active_categories(self, limit: int = 100, offset: int = 0) -> List[BotCategoryResponseDto]:
@@ -501,7 +507,6 @@ class BotService:
             category=category_dto
         )
     
-    @staticmethod
     @staticmethod
     def _category_to_dto(category: BotCategory) -> BotCategoryResponseDto:
         """Convert BotCategory model to BotCategoryResponseDto"""

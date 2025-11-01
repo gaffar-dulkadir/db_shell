@@ -254,6 +254,7 @@ class Conversation(Base):
         nullable=False
     )
     conversation_title: Mapped[Optional[str]] = mapped_column(String(255))
+    conversation_description: Mapped[Optional[str]] = mapped_column(Text)
     conversation_status: Mapped[str] = mapped_column(
         String(50),
         default='active',
@@ -316,10 +317,17 @@ class Conversation(Base):
     def updated_at(self) -> datetime:
         return self.conversation_updated_at
     
-    @property
+    @updated_at.setter
+    def updated_at(self, value: datetime):
+        self.conversation_updated_at = value
+    
     @property
     def description(self) -> Optional[str]:
-        return None  # Not available in current schema
+        return self.conversation_description
+    
+    @description.setter
+    def description(self, value: Optional[str]):
+        self.conversation_description = value
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="conversations")
     bot: Mapped[Optional["Bot"]] = relationship("Bot", back_populates="conversations")

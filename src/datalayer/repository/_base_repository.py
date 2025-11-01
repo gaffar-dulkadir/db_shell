@@ -140,17 +140,16 @@ class AsyncBaseRepository(AsyncRepositoryABC[T]):
         self.session = session
         self.model_class = model_class
     
+    async def _get_primary_key_field(self):
+        """Get the primary key field for the model"""
+        return getattr(self.model_class, self.model_class.__mapper__.primary_key[0].name)
+    
     async def get_by_id(self, id: PrimaryKeyType) -> Optional[T]:
         """Get entity by primary key"""
-        pk_field = self._get_primary_key_field()
+        pk_field = await self._get_primary_key_field()
         stmt = select(self.model_class).where(pk_field == id)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
-    
-    def _get_primary_key_field(self):
-        """Get the primary key field for the model"""
-        mapper = self.model_class.__mapper__
-        return mapper.primary_key[0]
     
     async def get_all(self, limit: Optional[int] = None, offset: Optional[int] = None) -> List[T]:
         """Get all entities with optional pagination"""
@@ -230,7 +229,7 @@ class AsyncBaseRepository(AsyncRepositoryABC[T]):
     
     async def exists(self, id: PrimaryKeyType) -> bool:
         """Check if entity exists by ID"""
-        pk_field = self._get_primary_key_field()
+        pk_field = await self._get_primary_key_field()
         stmt = select(1).where(pk_field == id)
         result = await self.session.execute(stmt)
         return result.scalar() is not None
@@ -238,7 +237,7 @@ class AsyncBaseRepository(AsyncRepositoryABC[T]):
     async def count(self, **filters) -> int:
         """Count entities with optional filters"""
         from sqlalchemy import func
-        pk_field = self._get_primary_key_field()
+        pk_field = await self._get_primary_key_field()
         stmt = select(func.count(pk_field))
         for key, value in filters.items():
             if hasattr(self.model_class, key):
