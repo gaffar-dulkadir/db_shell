@@ -23,7 +23,7 @@ class BotCategoryRepository(AsyncBaseRepository[BotCategory]):
         stmt = (
             select(BotCategory)
             .where(BotCategory.is_active == True)
-            .order_by(asc(BotCategory.sort_order), asc(BotCategory.name))
+            .order_by(asc(BotCategory.sort_order), asc(BotCategory.category_name))
             .limit(limit)
             .offset(offset)
         )
@@ -42,8 +42,8 @@ class BotCategoryRepository(AsyncBaseRepository[BotCategory]):
         # Count active bots in this category
         bot_count_stmt = (
             select(func.count(Bot.bot_id))
-            .where(Bot.category_id == category_id)
-            .where(Bot.status == BotStatus.ACTIVE)
+            .where(Bot.bot_category_id == category_id)
+            .where(Bot.bot_status == BotStatus.ACTIVE.value)
         )
         bot_count_result = await self.session.execute(bot_count_stmt)
         bot_count = bot_count_result.scalar() or 0
@@ -57,7 +57,7 @@ class BotCategoryRepository(AsyncBaseRepository[BotCategory]):
         """Get categories that have active bots"""
         stmt = (
             select(BotCategory)
-            .options(selectinload(BotCategory.bots.and_(Bot.status == BotStatus.ACTIVE)))
+            .options(selectinload(BotCategory.bots.and_(Bot.bot_status == BotStatus.ACTIVE.value)))
             .where(BotCategory.is_active == True)
             .order_by(asc(BotCategory.sort_order))
             .limit(limit)
@@ -79,8 +79,8 @@ class BotCategoryRepository(AsyncBaseRepository[BotCategory]):
                 and_(
                     BotCategory.is_active == True,
                     or_(
-                        BotCategory.name.ilike(f"%{query}%"),
-                        BotCategory.description.ilike(f"%{query}%")
+                        BotCategory.category_name.ilike(f"%{query}%"),        # Use actual column name
+                        BotCategory.category_description.ilike(f"%{query}%") # Use actual column name
                     )
                 )
             )
@@ -97,9 +97,38 @@ class BotRepository(AsyncBaseRepository[Bot]):
     def __init__(self, session: AsyncSession):
         super().__init__(session, Bot)
     
+    async def get_by_id(self, bot_id: str) -> Optional[Bot]:
+        """Get bot by ID without lazy loading relationships"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.debug(f"🔍 DEBUG BOT_REPO: get_by_id called for bot_id: {bot_id}")
+        logger.debug(f"🔍 DEBUG BOT_REPO: Session type: {type(self.session)}")
+        logger.debug(f"🔍 DEBUG BOT_REPO: Session is_active: {self.session.is_active}")
+        
+        try:
+            stmt = select(Bot).where(Bot.bot_id == bot_id)
+            logger.debug(f"🔍 DEBUG BOT_REPO: Statement created: {stmt}")
+            
+            logger.debug(f"🔍 DEBUG BOT_REPO: Executing query")
+            result = await self.session.execute(stmt)
+            logger.debug(f"🔍 DEBUG BOT_REPO: Query executed successfully")
+            
+            logger.debug(f"🔍 DEBUG BOT_REPO: Getting scalar result")
+            bot = result.scalar_one_or_none()
+            logger.debug(f"🔍 DEBUG BOT_REPO: Bot found: {bot is not None}")
+            
+            if bot:
+                logger.debug(f"🔍 DEBUG BOT_REPO: Bot object dict keys: {list(bot.__dict__.keys())}")
+            
+            return bot
+        except Exception as e:
+            logger.error(f"❌ DEBUG BOT_REPO: Error in get_by_id: {type(e)} - {str(e)}")
+            raise
+    
     async def get_by_name(self, name: str) -> Optional[Bot]:
         """Get bot by unique name"""
-        stmt = select(Bot).where(Bot.name == name)
+        stmt = select(Bot).where(Bot.bot_name == name)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
     
@@ -114,19 +143,19 @@ class BotRepository(AsyncBaseRepository[Bot]):
         return result.scalar_one_or_none()
     
     async def get_by_category(
-        self, 
-        category_id: str, 
+        self,
+        category_id: str,
         status: Optional[BotStatus] = None,
-        limit: int = 20, 
+        limit: int = 20,
         offset: int = 0
     ) -> List[Bot]:
         """Get bots by category"""
-        stmt = select(Bot).where(Bot.category_id == category_id)
+        stmt = select(Bot).where(Bot.bot_category_id == category_id)
         
         if status:
-            stmt = stmt.where(Bot.status == status)
+            stmt = stmt.where(Bot.bot_status == status.value)
         else:
-            stmt = stmt.where(Bot.status == BotStatus.ACTIVE)
+            stmt = stmt.where(Bot.bot_status == BotStatus.ACTIVE.value)
         
         stmt = (
             stmt.order_by(desc(Bot.is_featured), desc(Bot.rating), asc(Bot.display_name))
@@ -142,7 +171,7 @@ class BotRepository(AsyncBaseRepository[Bot]):
         stmt = (
             select(Bot)
             .where(Bot.is_featured == True)
-            .where(Bot.status == BotStatus.ACTIVE)
+            .where(Bot.bot_status == BotStatus.ACTIVE.value)
             .order_by(desc(Bot.rating), asc(Bot.display_name))
             .limit(limit)
         )
@@ -154,7 +183,7 @@ class BotRepository(AsyncBaseRepository[Bot]):
         stmt = (
             select(Bot)
             .where(Bot.is_premium == True)
-            .where(Bot.status == BotStatus.ACTIVE)
+            .where(Bot.bot_status == BotStatus.ACTIVE.value)
             .order_by(desc(Bot.rating), asc(Bot.display_name))
             .limit(limit)
             .offset(offset)
@@ -166,7 +195,7 @@ class BotRepository(AsyncBaseRepository[Bot]):
         """Get top rated bots"""
         stmt = (
             select(Bot)
-            .where(Bot.status == BotStatus.ACTIVE)
+            .where(Bot.bot_status == BotStatus.ACTIVE.value)
             .where(Bot.rating.isnot(None))
             .order_by(desc(Bot.rating), desc(Bot.total_conversations))
             .limit(limit)
@@ -178,7 +207,7 @@ class BotRepository(AsyncBaseRepository[Bot]):
         """Get most used bots by conversation count"""
         stmt = (
             select(Bot)
-            .where(Bot.status == BotStatus.ACTIVE)
+            .where(Bot.bot_status == BotStatus.ACTIVE.value)
             .order_by(desc(Bot.total_conversations), desc(Bot.rating))
             .limit(limit)
         )
@@ -203,21 +232,21 @@ class BotRepository(AsyncBaseRepository[Bot]):
             select(Bot)
             .where(
                 or_(
-                    Bot.name.ilike(f"%{query}%"),
-                    Bot.display_name.ilike(f"%{query}%"),
-                    Bot.description.ilike(f"%{query}%")
+                    Bot.bot_name.ilike(f"%{query}%"),       # Use actual column name
+                    Bot.display_name.ilike(f"%{query}%"),   # This should work (direct column)
+                    Bot.bot_description.ilike(f"%{query}%") # Use actual column name
                 )
             )
         )
         
         # Apply filters
         if category_id:
-            stmt = stmt.where(Bot.category_id == category_id)
+            stmt = stmt.where(Bot.bot_category_id == category_id)
         
         if status:
-            stmt = stmt.where(Bot.status == status)
+            stmt = stmt.where(Bot.bot_status == status.value)
         else:
-            stmt = stmt.where(Bot.status == BotStatus.ACTIVE)
+            stmt = stmt.where(Bot.bot_status == BotStatus.ACTIVE.value)
         
         if is_featured is not None:
             stmt = stmt.where(Bot.is_featured == is_featured)
@@ -228,8 +257,16 @@ class BotRepository(AsyncBaseRepository[Bot]):
         if min_rating is not None:
             stmt = stmt.where(Bot.rating >= min_rating)
         
-        # Apply sorting
-        sort_column = getattr(Bot, sort_by, Bot.display_name)
+        # Apply sorting - map property names to column names
+        column_mapping = {
+            "name": Bot.bot_name,
+            "display_name": Bot.display_name,
+            "description": Bot.bot_description,
+            "rating": Bot.rating,
+            "created_at": Bot.created_at,
+            "total_conversations": Bot.total_conversations
+        }
+        sort_column = column_mapping.get(sort_by, Bot.display_name)
         if sort_order.lower() == "desc":
             stmt = stmt.order_by(desc(sort_column))
         else:
@@ -244,7 +281,7 @@ class BotRepository(AsyncBaseRepository[Bot]):
         """Get bots by status"""
         stmt = (
             select(Bot)
-            .where(Bot.status == status)
+            .where(Bot.bot_status == status.value)
             .order_by(desc(Bot.created_at))
             .limit(limit)
             .offset(offset)
@@ -257,7 +294,7 @@ class BotRepository(AsyncBaseRepository[Bot]):
         # Count conversations for this bot
         count_stmt = (
             select(func.count(Conversation.conversation_id))
-            .where(Conversation.bot_id == bot_id)
+            .where(Conversation.conversation_bot_id == bot_id)
         )
         count_result = await self.session.execute(count_stmt)
         total_conversations = count_result.scalar() or 0
@@ -269,7 +306,7 @@ class BotRepository(AsyncBaseRepository[Bot]):
             .values(total_conversations=total_conversations)
         )
         result = await self.session.execute(update_stmt)
-        await self.session.commit()
+        await self.session.flush()
         return result.rowcount > 0
     
     async def update_rating(self, bot_id: str, new_rating: float) -> bool:
@@ -280,7 +317,7 @@ class BotRepository(AsyncBaseRepository[Bot]):
             .values(rating=new_rating)
         )
         result = await self.session.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
         return result.rowcount > 0
     
     async def update_status(self, bot_id: str, status: BotStatus) -> bool:
@@ -288,24 +325,24 @@ class BotRepository(AsyncBaseRepository[Bot]):
         stmt = (
             update(Bot)
             .where(Bot.bot_id == bot_id)
-            .values(status=status)
+            .values(bot_status=status.value)
         )
         result = await self.session.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
         return result.rowcount > 0
     
     async def count_by_status(self, status: BotStatus) -> int:
         """Count bots by status"""
-        stmt = select(func.count(Bot.bot_id)).where(Bot.status == status)
+        stmt = select(func.count(Bot.bot_id)).where(Bot.bot_status == status.value)
         result = await self.session.execute(stmt)
         return result.scalar() or 0
     
     async def count_by_category(self, category_id: str, status: Optional[BotStatus] = None) -> int:
         """Count bots by category"""
-        stmt = select(func.count(Bot.bot_id)).where(Bot.category_id == category_id)
+        stmt = select(func.count(Bot.bot_id)).where(Bot.bot_category_id == category_id)
         
         if status:
-            stmt = stmt.where(Bot.status == status)
+            stmt = stmt.where(Bot.bot_status == status.value)
         
         result = await self.session.execute(stmt)
         return result.scalar() or 0
@@ -313,17 +350,17 @@ class BotRepository(AsyncBaseRepository[Bot]):
     async def get_bot_stats(self) -> Dict[str, Any]:
         """Get bot statistics"""
         total_stmt = select(func.count(Bot.bot_id))
-        active_stmt = select(func.count(Bot.bot_id)).where(Bot.status == BotStatus.ACTIVE)
-        pending_stmt = select(func.count(Bot.bot_id)).where(Bot.status == BotStatus.PENDING)
+        active_stmt = select(func.count(Bot.bot_id)).where(Bot.bot_status == BotStatus.ACTIVE.value)
+        pending_stmt = select(func.count(Bot.bot_id)).where(Bot.bot_status == BotStatus.PENDING.value)
         featured_stmt = (
             select(func.count(Bot.bot_id))
             .where(Bot.is_featured == True)
-            .where(Bot.status == BotStatus.ACTIVE)
+            .where(Bot.bot_status == BotStatus.ACTIVE.value)
         )
         premium_stmt = (
             select(func.count(Bot.bot_id))
             .where(Bot.is_premium == True)
-            .where(Bot.status == BotStatus.ACTIVE)
+            .where(Bot.bot_status == BotStatus.ACTIVE.value)
         )
         
         total_result = await self.session.execute(total_stmt)
@@ -332,12 +369,12 @@ class BotRepository(AsyncBaseRepository[Bot]):
         featured_result = await self.session.execute(featured_stmt)
         premium_result = await self.session.execute(premium_stmt)
         
-        # Get bots by category
+        # Get bots by category - Fixed to use actual column names
         category_stats_stmt = (
-            select(BotCategory.name, func.count(Bot.bot_id))
-            .outerjoin(Bot, BotCategory.category_id == Bot.category_id)
-            .where(or_(Bot.status == BotStatus.ACTIVE, Bot.status.is_(None)))
-            .group_by(BotCategory.category_id, BotCategory.name)
+            select(BotCategory.category_name, func.count(Bot.bot_id))
+            .outerjoin(Bot, BotCategory.category_id == Bot.bot_category_id)
+            .where(or_(Bot.bot_status == BotStatus.ACTIVE.value, Bot.bot_status.is_(None)))
+            .group_by(BotCategory.category_id, BotCategory.category_name)
         )
         category_stats_result = await self.session.execute(category_stats_stmt)
         bots_by_category = {row[0]: row[1] for row in category_stats_result}

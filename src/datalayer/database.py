@@ -30,9 +30,11 @@ class DatabaseManager:
                 max_overflow=0
             )
             self._session_local = async_sessionmaker(
-                self._engine, 
-                class_=AsyncSession, 
-                expire_on_commit=False
+                self._engine,
+                class_=AsyncSession,
+                expire_on_commit=False,
+                autoflush=True,
+                autocommit=False
             )
         except Exception as e:
             print(f"Error loading config: {e}")
@@ -85,10 +87,9 @@ async def get_postgres_session() -> AsyncGenerator[AsyncSession, None]:
     async with db_manager.session_local() as session:
         try:
             yield session
-            await session.commit()
-        except Exception as e:
+        except Exception:
             await session.rollback()
-            raise e
+            raise
         finally:
             await session.close()
 

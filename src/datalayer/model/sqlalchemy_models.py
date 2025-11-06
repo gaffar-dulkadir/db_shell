@@ -317,9 +317,13 @@ class Conversation(Base):
         return self.conversation_updated_at
     
     @property
-    @property
     def description(self) -> Optional[str]:
         return None  # Not available in current schema
+    
+    @description.setter
+    def description(self, value: Optional[str]):
+        pass  # No backing field in database, ignore the value
+    
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="conversations")
     bot: Mapped[Optional["Bot"]] = relationship("Bot", back_populates="conversations")

@@ -202,22 +202,41 @@ class AsyncBaseRepository(AsyncRepositoryABC[T]):
     
     async def save(self, entity: T) -> T:
         """Save (insert or update) entity"""
-        self.session.add(entity)
-        await self.session.flush()
-        await self.session.refresh(entity)
-        return entity
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.debug(f"🔍 DEBUG BASE_REPO: save() called for entity type: {type(entity)}")
+        logger.debug(f"🔍 DEBUG BASE_REPO: Session type: {type(self.session)}")
+        logger.debug(f"🔍 DEBUG BASE_REPO: Session is_active: {self.session.is_active}")
+        
+        try:
+            logger.debug(f"🔍 DEBUG BASE_REPO: Adding entity to session")
+            self.session.add(entity)
+            logger.debug(f"🔍 DEBUG BASE_REPO: Entity added successfully")
+            
+            logger.debug(f"🔍 DEBUG BASE_REPO: Flushing session")
+            await self.session.flush()
+            logger.debug(f"🔍 DEBUG BASE_REPO: Session flushed successfully")
+            
+            # FIXED: Removed await self.session.refresh(entity) that was causing greenlet_spawn error
+            # After flush(), the entity already has its primary key and is in correct state
+            # refresh() can trigger lazy loading which causes greenlet_spawn issues in async context
+            logger.debug(f"🔍 DEBUG BASE_REPO: FIXED - Skipping refresh() to avoid greenlet_spawn error")
+            
+            return entity
+        except Exception as e:
+            logger.error(f"❌ DEBUG BASE_REPO: Error in save(): {type(e)} - {str(e)}")
+            raise
     
     async def save_all(self, entities: List[T]) -> List[T]:
         """Save multiple entities"""
         self.session.add_all(entities)
         await self.session.flush()
-        for entity in entities:
-            await self.session.refresh(entity)
         return entities
     
     async def delete(self, entity: T) -> None:
         """Delete entity"""
-        await self.session.delete(entity)
+        self.session.delete(entity)
         await self.session.flush()
     
     async def delete_by_id(self, id: PrimaryKeyType) -> bool:

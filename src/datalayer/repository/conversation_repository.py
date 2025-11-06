@@ -29,16 +29,16 @@ class ConversationRepository(AsyncBaseRepository[Conversation]):
         """Get conversations by user ID"""
         stmt = (
             select(Conversation)
-            .where(Conversation.user_id == user_id)
+            .where(Conversation.conversation_user_id == user_id)
         )
         
         if status:
-            stmt = stmt.where(Conversation.status == status)
+            stmt = stmt.where(Conversation.conversation_status == status.value)
         
         stmt = (
             stmt.limit(limit)
             .offset(offset)
-            .order_by(desc(Conversation.last_message_at), desc(Conversation.updated_at))
+            .order_by(desc(Conversation.last_message_at), desc(Conversation.conversation_updated_at))
         )
         
         result = await self.session.execute(stmt)
@@ -100,27 +100,26 @@ class ConversationRepository(AsyncBaseRepository[Conversation]):
         """Search conversations by title or description"""
         stmt = (
             select(Conversation)
-            .where(Conversation.user_id == user_id)
+            .where(Conversation.conversation_user_id == user_id)
             .where(
                 or_(
-                    Conversation.title.ilike(f"%{query}%"),
-                    Conversation.description.ilike(f"%{query}%")
+                    Conversation.conversation_title.ilike(f"%{query}%"),
+                    Conversation.conversation_title.ilike(f"%{query}%")  # No description field in DB
                 )
             )
         )
         
         if status:
-            stmt = stmt.where(Conversation.status == status)
+            stmt = stmt.where(Conversation.conversation_status == status.value)
         
         if bot_id:
-            stmt = stmt.where(Conversation.bot_id == bot_id)
+            stmt = stmt.where(Conversation.conversation_bot_id == bot_id)
         
         stmt = (
             stmt.limit(limit)
             .offset(offset)
-            .order_by(desc(Conversation.last_message_at), desc(Conversation.updated_at))
+            .order_by(desc(Conversation.last_message_at), desc(Conversation.conversation_updated_at))
         )
-        
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
     
@@ -133,8 +132,8 @@ class ConversationRepository(AsyncBaseRepository[Conversation]):
         """Get conversations by bot ID"""
         stmt = (
             select(Conversation)
-            .where(Conversation.bot_id == bot_id)
-            .where(Conversation.status == ConversationStatus.ACTIVE)
+            .where(Conversation.conversation_bot_id == bot_id)
+            .where(Conversation.conversation_status == ConversationStatus.ACTIVE.value)
             .limit(limit)
             .offset(offset)
             .order_by(desc(Conversation.last_message_at))
@@ -144,10 +143,10 @@ class ConversationRepository(AsyncBaseRepository[Conversation]):
     
     async def count_by_user(self, user_id: str, status: Optional[ConversationStatus] = None) -> int:
         """Count conversations by user"""
-        stmt = select(func.count(Conversation.conversation_id)).where(Conversation.user_id == user_id)
+        stmt = select(func.count(Conversation.conversation_id)).where(Conversation.conversation_user_id == user_id)
         
         if status:
-            stmt = stmt.where(Conversation.status == status)
+            stmt = stmt.where(Conversation.conversation_status == status.value)
         
         result = await self.session.execute(stmt)
         return result.scalar() or 0
@@ -156,8 +155,8 @@ class ConversationRepository(AsyncBaseRepository[Conversation]):
         """Count conversations by bot"""
         stmt = (
             select(func.count(Conversation.conversation_id))
-            .where(Conversation.bot_id == bot_id)
-            .where(Conversation.status == ConversationStatus.ACTIVE)
+            .where(Conversation.conversation_bot_id == bot_id)
+            .where(Conversation.conversation_status == ConversationStatus.ACTIVE.value)
         )
         result = await self.session.execute(stmt)
         return result.scalar() or 0
@@ -169,11 +168,11 @@ class ConversationRepository(AsyncBaseRepository[Conversation]):
             .where(Conversation.conversation_id == conversation_id)
             .values(
                 last_message_at=message_time,
-                updated_at=datetime.utcnow()
+                conversation_updated_at=datetime.utcnow()
             )
         )
         result = await self.session.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
         return result.rowcount > 0
     
     async def archive_conversation(self, conversation_id: str) -> bool:
@@ -182,12 +181,12 @@ class ConversationRepository(AsyncBaseRepository[Conversation]):
             update(Conversation)
             .where(Conversation.conversation_id == conversation_id)
             .values(
-                status=ConversationStatus.ARCHIVED,
-                updated_at=datetime.utcnow()
+                conversation_status=ConversationStatus.ARCHIVED.value,
+                conversation_updated_at=datetime.utcnow()
             )
         )
         result = await self.session.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
         return result.rowcount > 0
     
     async def restore_conversation(self, conversation_id: str) -> bool:
@@ -196,12 +195,12 @@ class ConversationRepository(AsyncBaseRepository[Conversation]):
             update(Conversation)
             .where(Conversation.conversation_id == conversation_id)
             .values(
-                status=ConversationStatus.ACTIVE,
-                updated_at=datetime.utcnow()
+                conversation_status=ConversationStatus.ACTIVE.value,
+                conversation_updated_at=datetime.utcnow()
             )
         )
         result = await self.session.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
         return result.rowcount > 0
     
     async def delete_conversation(self, conversation_id: str) -> bool:
@@ -210,12 +209,12 @@ class ConversationRepository(AsyncBaseRepository[Conversation]):
             update(Conversation)
             .where(Conversation.conversation_id == conversation_id)
             .values(
-                status=ConversationStatus.DELETED,
-                updated_at=datetime.utcnow()
+                conversation_status=ConversationStatus.DELETED.value,
+                conversation_updated_at=datetime.utcnow()
             )
         )
         result = await self.session.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
         return result.rowcount > 0
     
     async def get_recent_conversations(
@@ -229,8 +228,8 @@ class ConversationRepository(AsyncBaseRepository[Conversation]):
         
         stmt = (
             select(Conversation)
-            .where(Conversation.user_id == user_id)
-            .where(Conversation.status == ConversationStatus.ACTIVE)
+            .where(Conversation.conversation_user_id == user_id)
+            .where(Conversation.conversation_status == ConversationStatus.ACTIVE.value)
             .where(Conversation.last_message_at >= since_date)
             .limit(limit)
             .order_by(desc(Conversation.last_message_at))
@@ -241,24 +240,24 @@ class ConversationRepository(AsyncBaseRepository[Conversation]):
     
     async def get_conversation_stats(self, user_id: str) -> Dict[str, Any]:
         """Get conversation statistics for a user"""
-        total_stmt = select(func.count(Conversation.conversation_id)).where(Conversation.user_id == user_id)
+        total_stmt = select(func.count(Conversation.conversation_id)).where(Conversation.conversation_user_id == user_id)
         active_stmt = (
             select(func.count(Conversation.conversation_id))
-            .where(Conversation.user_id == user_id)
-            .where(Conversation.status == ConversationStatus.ACTIVE)
+            .where(Conversation.conversation_user_id == user_id)
+            .where(Conversation.conversation_status == ConversationStatus.ACTIVE.value)
         )
         archived_stmt = (
             select(func.count(Conversation.conversation_id))
-            .where(Conversation.user_id == user_id)
-            .where(Conversation.status == ConversationStatus.ARCHIVED)
+            .where(Conversation.conversation_user_id == user_id)
+            .where(Conversation.conversation_status == ConversationStatus.ARCHIVED.value)
         )
         
         # Recent conversations (last 30 days)
         recent_date = datetime.utcnow() - timedelta(days=30)
         recent_stmt = (
             select(func.count(Conversation.conversation_id))
-            .where(Conversation.user_id == user_id)
-            .where(Conversation.created_at >= recent_date)
+            .where(Conversation.conversation_user_id == user_id)
+            .where(Conversation.conversation_created_at >= recent_date)
         )
         
         total_result = await self.session.execute(total_stmt)
@@ -285,8 +284,8 @@ class ConversationRepository(AsyncBaseRepository[Conversation]):
                 Conversation,
                 func.count(Message.message_id).label('message_count')
             )
-            .outerjoin(Message, Conversation.conversation_id == Message.conversation_id)
-            .where(Conversation.user_id == user_id)
+            .outerjoin(Message, Conversation.conversation_id == Message.message_conversation_id)
+            .where(Conversation.conversation_user_id == user_id)
             .group_by(Conversation.conversation_id)
             .limit(limit)
             .offset(offset)

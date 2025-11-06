@@ -206,8 +206,8 @@ class UserSettingsRepository(AsyncBaseRepository[UserSettings]):
         return result.scalar_one_or_none()
     
     async def update_notification_settings(
-        self, 
-        user_id: str, 
+        self,
+        user_id: str,
         email_notifications: Optional[bool] = None,
         push_notifications: Optional[bool] = None
     ) -> bool:
@@ -227,7 +227,7 @@ class UserSettingsRepository(AsyncBaseRepository[UserSettings]):
             .values(**updates)
         )
         result = await self.session.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
         return result.rowcount > 0
     
     async def get_users_with_email_notifications(self) -> List[UserSettings]:

@@ -185,7 +185,7 @@ class MessageRepository(AsyncBaseRepository[Message]):
             )
         )
         result = await self.session.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
         return result.rowcount > 0
     
     async def mark_as_edited(self, message_id: str) -> bool:
@@ -199,7 +199,7 @@ class MessageRepository(AsyncBaseRepository[Message]):
             )
         )
         result = await self.session.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
         return result.rowcount > 0
     
     async def update_parent_message_id(self, message_id: str, parent_id: Optional[str]) -> bool:
@@ -210,7 +210,7 @@ class MessageRepository(AsyncBaseRepository[Message]):
             .values(parent_message_id=parent_id)
         )
         result = await self.session.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
         return result.rowcount > 0
 
 class DocumentRepository(AsyncBaseRepository[Document]):
@@ -429,7 +429,7 @@ class MemoryHistoryRepository(AsyncBaseRepository[MemoryHistory]):
             .where(MemoryHistory.expires_at <= datetime.utcnow())
         )
         result = await self.session.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
         return result.rowcount
     
     async def count_by_conversation(self, conversation_id: str, memory_type: Optional[str] = None) -> int:
@@ -478,7 +478,7 @@ class MemoryHistoryRepository(AsyncBaseRepository[MemoryHistory]):
                 )
             )
             await self.session.execute(stmt)
-            await self.session.commit()
+            await self.session.flush()
             
             # Return updated memory
             return await self.get_by_id(existing.memory_id)

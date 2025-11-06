@@ -31,31 +31,48 @@ class ConversationService:
     async def create_conversation(self, user_id: str, conversation_data: ConversationCreateDto) -> ConversationResponseDto:
         """Create a new conversation"""
         logger.info(f"📝 Creating conversation for user: {user_id}")
+        logger.debug(f"🔍 DEBUG: Session type: {type(self.session)}")
+        logger.debug(f"🔍 DEBUG: Session is_active: {self.session.is_active}")
         
         try:
             # Validate bot if specified
             if conversation_data.bot_id:
+                logger.debug(f"🔍 DEBUG: Validating bot_id: {conversation_data.bot_id}")
                 bot = await self.bot_repo.get_by_id(conversation_data.bot_id)
+                logger.debug(f"🔍 DEBUG: Bot validation completed, bot found: {bot is not None}")
                 if not bot:
                     raise ValueError(f"Bot with ID {conversation_data.bot_id} not found")
+                # Log bot object details to check if any relationships are loaded
+                logger.debug(f"🔍 DEBUG: Bot object dict keys: {list(bot.__dict__.keys()) if bot else 'None'}")
             
             # Create conversation
+            logger.debug(f"🔍 DEBUG: Creating conversation object")
             conversation = Conversation(
-                user_id=user_id,
-                bot_id=conversation_data.bot_id,
-                title=conversation_data.title,
-                description=conversation_data.description,
+                conversation_user_id=user_id,
+                conversation_bot_id=conversation_data.bot_id,
+                conversation_title=conversation_data.title,
                 custom_metadata=conversation_data.metadata,
-                status=ConversationStatus.ACTIVE
+                conversation_status=ConversationStatus.ACTIVE.value
             )
+            logger.debug(f"🔍 DEBUG: Conversation object created, dict keys: {list(conversation.__dict__.keys())}")
             
+            logger.debug(f"🔍 DEBUG: Calling repository save")
             saved_conversation = await self.conversation_repo.save(conversation)
+            logger.debug(f"🔍 DEBUG: Repository save completed, dict keys: {list(saved_conversation.__dict__.keys())}")
+            
+            logger.debug(f"🔍 DEBUG: Committing session")
             await self.session.commit()
+            logger.debug(f"🔍 DEBUG: Session commit completed")
+            
+            logger.debug(f"🔍 DEBUG: Converting to DTO - saved_conversation dict: {list(saved_conversation.__dict__.keys())}")
+            result_dto = self._conversation_to_dto(saved_conversation)
+            logger.debug(f"🔍 DEBUG: DTO conversion completed successfully")
             
             logger.info(f"✅ Conversation created successfully: {saved_conversation.conversation_id}")
-            return self._conversation_to_dto(saved_conversation)
+            return result_dto
             
         except Exception as e:
+            logger.error(f"❌ DEBUG: Exception occurred at step, type: {type(e)}, message: {str(e)}")
             await self.session.rollback()
             logger.error(f"❌ Failed to create conversation: {e}")
             raise
@@ -143,7 +160,7 @@ class ConversationService:
             if update_data.metadata is not None:
                 conversation.custom_metadata = update_data.metadata
             
-            conversation.updated_at = datetime.utcnow()
+            conversation.conversation_updated_at = datetime.utcnow()
             
             updated_conversation = await self.conversation_repo.save(conversation)
             await self.session.commit()
@@ -162,8 +179,8 @@ class ConversationService:
         
         try:
             success = await self.conversation_repo.archive_conversation(conversation_id)
-            
             if success:
+                await self.session.commit()
                 logger.info(f"✅ Conversation archived successfully: {conversation_id}")
             else:
                 logger.warning(f"⚠️ Conversation not found for archiving: {conversation_id}")
@@ -180,8 +197,8 @@ class ConversationService:
         
         try:
             success = await self.conversation_repo.restore_conversation(conversation_id)
-            
             if success:
+                await self.session.commit()
                 logger.info(f"✅ Conversation restored successfully: {conversation_id}")
             else:
                 logger.warning(f"⚠️ Conversation not found for restoring: {conversation_id}")
@@ -198,8 +215,8 @@ class ConversationService:
         
         try:
             success = await self.conversation_repo.delete_conversation(conversation_id)
-            
             if success:
+                await self.session.commit()
                 logger.info(f"✅ Conversation deleted successfully: {conversation_id}")
             else:
                 logger.warning(f"⚠️ Conversation not found for deletion: {conversation_id}")
@@ -293,6 +310,8 @@ class ConversationService:
         
         try:
             success = await self.conversation_repo.update_last_message_time(conversation_id, message_time)
+            if success:
+                await self.session.commit()
             return success
             
         except Exception as e:
@@ -329,19 +348,92 @@ class ConversationService:
     
     def _conversation_to_dto(self, conversation: Conversation) -> ConversationResponseDto:
         """Convert Conversation model to ConversationResponseDto"""
-        return ConversationResponseDto(
-            conversation_id=conversation.conversation_id,
-            user_id=conversation.user_id,
-            bot_id=conversation.bot_id,
-            title=conversation.title,
-            description=conversation.description,
-            status=conversation.status,
-            metadata=conversation.custom_metadata,
-            created_at=conversation.created_at,
-            updated_at=conversation.updated_at,
-            last_message_at=conversation.last_message_at,
-            message_count=len(conversation.messages) if hasattr(conversation, 'messages') and conversation.messages else 0
-        )
+        logger.debug(f"🔍 DEBUG: _conversation_to_dto called")
+        logger.debug(f"🔍 DEBUG: Conversation object type: {type(conversation)}")
+        logger.debug(f"🔍 DEBUG: Conversation __dict__ keys: {list(conversation.__dict__.keys())}")
+        
+        # For newly created conversations, messages relationship is not loaded
+        # Avoid accessing it to prevent lazy loading in async context
+        message_count = 0
+        
+        try:
+            # Only access messages if relationship is already loaded (not lazy)
+            logger.debug(f"🔍 DEBUG: Checking if conversation has 'messages' attribute")
+            if hasattr(conversation, 'messages'):
+                logger.debug(f"🔍 DEBUG: Conversation has 'messages' attribute")
+                # Check if the relationship is already loaded to avoid lazy loading
+                logger.debug(f"🔍 DEBUG: Checking if messages is loaded in __dict__")
+                messages_loaded = conversation.__dict__.get('messages') is not None
+                logger.debug(f"🔍 DEBUG: Messages loaded: {messages_loaded}")
+                if messages_loaded and conversation.messages:
+                    logger.debug(f"🔍 DEBUG: Accessing conversation.messages length")
+                    message_count = len(conversation.messages)
+                    logger.debug(f"🔍 DEBUG: Message count: {message_count}")
+            else:
+                logger.debug(f"🔍 DEBUG: Conversation does not have 'messages' attribute")
+        except Exception as e:
+            logger.error(f"❌ DEBUG: Error during message count calculation: {type(e)} - {str(e)}")
+            message_count = 0
+        
+        try:
+            # Access DB columns directly instead of properties to avoid any potential lazy loading
+            logger.debug(f"🔍 DEBUG: Accessing conversation.conversation_id")
+            conv_id = conversation.conversation_id
+            logger.debug(f"🔍 DEBUG: conversation_id: {conv_id}")
+            
+            logger.debug(f"🔍 DEBUG: Accessing conversation.conversation_user_id")
+            user_id = conversation.conversation_user_id
+            logger.debug(f"🔍 DEBUG: user_id: {user_id}")
+            
+            logger.debug(f"🔍 DEBUG: Accessing conversation.conversation_bot_id")
+            bot_id = conversation.conversation_bot_id
+            logger.debug(f"🔍 DEBUG: bot_id: {bot_id}")
+            
+            logger.debug(f"🔍 DEBUG: Accessing conversation.conversation_title")
+            title = conversation.conversation_title
+            logger.debug(f"🔍 DEBUG: title: {title}")
+            
+            logger.debug(f"🔍 DEBUG: Accessing conversation.conversation_status")
+            status_val = conversation.conversation_status
+            logger.debug(f"🔍 DEBUG: status: {status_val}")
+            
+            logger.debug(f"🔍 DEBUG: Converting status to enum")
+            status_enum = ConversationStatus(status_val)
+            logger.debug(f"🔍 DEBUG: status enum: {status_enum}")
+            
+            logger.debug(f"🔍 DEBUG: Accessing conversation.custom_metadata")
+            metadata = conversation.custom_metadata
+            logger.debug(f"🔍 DEBUG: metadata: {metadata}")
+            
+            logger.debug(f"🔍 DEBUG: Accessing conversation.conversation_created_at")
+            created_at = conversation.conversation_created_at
+            logger.debug(f"🔍 DEBUG: created_at: {created_at}")
+            
+            logger.debug(f"🔍 DEBUG: Accessing conversation.conversation_updated_at")
+            updated_at = conversation.conversation_updated_at
+            logger.debug(f"🔍 DEBUG: updated_at: {updated_at}")
+            
+            logger.debug(f"🔍 DEBUG: Accessing conversation.last_message_at")
+            last_message_at = conversation.last_message_at
+            logger.debug(f"🔍 DEBUG: last_message_at: {last_message_at}")
+            
+            logger.debug(f"🔍 DEBUG: Creating ConversationResponseDto")
+            return ConversationResponseDto(
+                conversation_id=conv_id,
+                user_id=user_id,  # Use DB column directly
+                bot_id=bot_id,    # Use DB column directly
+                title=title,      # Use DB column directly
+                description=None,  # No description field in current schema
+                status=status_enum,  # Convert status directly
+                metadata=metadata,
+                created_at=created_at,    # Use DB column directly
+                updated_at=updated_at,    # Use DB column directly
+                last_message_at=last_message_at,
+                message_count=message_count
+            )
+        except Exception as e:
+            logger.error(f"❌ DEBUG: Error during DTO creation: {type(e)} - {str(e)}")
+            raise
     
     def _conversation_with_messages_to_dto(self, conversation: Conversation) -> ConversationWithMessagesDto:
         """Convert Conversation model with messages to ConversationWithMessagesDto"""
