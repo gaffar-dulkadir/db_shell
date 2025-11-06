@@ -138,8 +138,8 @@ class ConversationService:
             raise
     
     async def update_conversation(
-        self, 
-        conversation_id: str, 
+        self,
+        conversation_id: str,
         update_data: ConversationUpdateDto
     ) -> Optional[ConversationResponseDto]:
         """Update conversation"""
@@ -150,13 +150,14 @@ class ConversationService:
             if not conversation:
                 return None
             
-            # Update fields
+            # Update fields that exist in database schema
             if update_data.title is not None:
-                conversation.title = update_data.title
+                conversation.conversation_title = update_data.title
+            # Note: description field is not available in database schema, skip it
             if update_data.description is not None:
-                conversation.description = update_data.description
+                logger.warning(f"⚠️ Description field update ignored - not supported in database schema")
             if update_data.status is not None:
-                conversation.status = update_data.status
+                conversation.conversation_status = update_data.status.value
             if update_data.metadata is not None:
                 conversation.custom_metadata = update_data.metadata
             
@@ -289,15 +290,50 @@ class ConversationService:
         logger.debug(f"📊 Getting conversation stats for user: {user_id}")
         
         try:
+            # Get conversation stats from repository
             stats = await self.conversation_repo.get_conversation_stats(user_id)
+            
+            # Get message statistics across all user conversations
+            from datetime import datetime, timedelta
+            from sqlalchemy import select, func
+            from datalayer.model.sqlalchemy_models import Message, Conversation
+            
+            # Get total messages for user's conversations
+            total_messages_stmt = (
+                select(func.count(Message.message_id))
+                .join(Conversation, Message.message_conversation_id == Conversation.conversation_id)
+                .where(Conversation.conversation_user_id == user_id)
+                .where(Message.is_deleted == False)
+            )
+            total_messages_result = await self.session.execute(total_messages_stmt)
+            total_messages = total_messages_result.scalar() or 0
+            
+            # Get today's messages for user's conversations
+            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_end = today_start + timedelta(days=1)
+            today_messages_stmt = (
+                select(func.count(Message.message_id))
+                .join(Conversation, Message.message_conversation_id == Conversation.conversation_id)
+                .where(Conversation.conversation_user_id == user_id)
+                .where(Message.is_deleted == False)
+                .where(Message.created_at >= today_start)
+                .where(Message.created_at < today_end)
+            )
+            today_messages_result = await self.session.execute(today_messages_stmt)
+            today_messages = today_messages_result.scalar() or 0
+            
+            # Calculate average messages per conversation
+            avg_messages_per_conversation = 0.0
+            if stats["total_conversations"] > 0:
+                avg_messages_per_conversation = total_messages / stats["total_conversations"]
             
             return ConversationStatsDto(
                 total_conversations=stats["total_conversations"],
                 active_conversations=stats["active_conversations"],
                 archived_conversations=stats["archived_conversations"],
-                total_messages=0,  # Will be calculated by message service
-                today_messages=0,  # Will be calculated by message service
-                avg_messages_per_conversation=0.0  # Will be calculated by message service
+                total_messages=total_messages,
+                today_messages=today_messages,
+                avg_messages_per_conversation=round(avg_messages_per_conversation, 2)
             )
             
         except Exception as e:
@@ -345,94 +381,43 @@ class ConversationService:
         except Exception as e:
             logger.error(f"❌ Failed to get conversations with message count: {e}")
             raise
-    
     def _conversation_to_dto(self, conversation: Conversation) -> ConversationResponseDto:
         """Convert Conversation model to ConversationResponseDto"""
-        logger.debug(f"🔍 DEBUG: _conversation_to_dto called")
-        logger.debug(f"🔍 DEBUG: Conversation object type: {type(conversation)}")
-        logger.debug(f"🔍 DEBUG: Conversation __dict__ keys: {list(conversation.__dict__.keys())}")
+        logger.debug(f"🔍 Converting conversation to DTO: {conversation.conversation_id}")
         
-        # For newly created conversations, messages relationship is not loaded
-        # Avoid accessing it to prevent lazy loading in async context
+        # For message count, avoid accessing relationships to prevent lazy loading in async context
         message_count = 0
         
         try:
-            # Only access messages if relationship is already loaded (not lazy)
-            logger.debug(f"🔍 DEBUG: Checking if conversation has 'messages' attribute")
-            if hasattr(conversation, 'messages'):
-                logger.debug(f"🔍 DEBUG: Conversation has 'messages' attribute")
-                # Check if the relationship is already loaded to avoid lazy loading
-                logger.debug(f"🔍 DEBUG: Checking if messages is loaded in __dict__")
-                messages_loaded = conversation.__dict__.get('messages') is not None
-                logger.debug(f"🔍 DEBUG: Messages loaded: {messages_loaded}")
-                if messages_loaded and conversation.messages:
-                    logger.debug(f"🔍 DEBUG: Accessing conversation.messages length")
-                    message_count = len(conversation.messages)
-                    logger.debug(f"🔍 DEBUG: Message count: {message_count}")
-            else:
-                logger.debug(f"🔍 DEBUG: Conversation does not have 'messages' attribute")
+            # Check if messages relationship is already loaded (eager loading scenario)
+            if hasattr(conversation, 'messages') and 'messages' in conversation.__dict__:
+                # Only count if already loaded, don't trigger lazy loading
+                messages = conversation.__dict__.get('messages', [])
+                if messages is not None:
+                    message_count = len(messages)
         except Exception as e:
-            logger.error(f"❌ DEBUG: Error during message count calculation: {type(e)} - {str(e)}")
+            # If any error occurs, just use 0 as message count
+            logger.debug(f"⚠️ Could not determine message count: {e}")
             message_count = 0
         
         try:
-            # Access DB columns directly instead of properties to avoid any potential lazy loading
-            logger.debug(f"🔍 DEBUG: Accessing conversation.conversation_id")
-            conv_id = conversation.conversation_id
-            logger.debug(f"🔍 DEBUG: conversation_id: {conv_id}")
-            
-            logger.debug(f"🔍 DEBUG: Accessing conversation.conversation_user_id")
-            user_id = conversation.conversation_user_id
-            logger.debug(f"🔍 DEBUG: user_id: {user_id}")
-            
-            logger.debug(f"🔍 DEBUG: Accessing conversation.conversation_bot_id")
-            bot_id = conversation.conversation_bot_id
-            logger.debug(f"🔍 DEBUG: bot_id: {bot_id}")
-            
-            logger.debug(f"🔍 DEBUG: Accessing conversation.conversation_title")
-            title = conversation.conversation_title
-            logger.debug(f"🔍 DEBUG: title: {title}")
-            
-            logger.debug(f"🔍 DEBUG: Accessing conversation.conversation_status")
-            status_val = conversation.conversation_status
-            logger.debug(f"🔍 DEBUG: status: {status_val}")
-            
-            logger.debug(f"🔍 DEBUG: Converting status to enum")
-            status_enum = ConversationStatus(status_val)
-            logger.debug(f"🔍 DEBUG: status enum: {status_enum}")
-            
-            logger.debug(f"🔍 DEBUG: Accessing conversation.custom_metadata")
-            metadata = conversation.custom_metadata
-            logger.debug(f"🔍 DEBUG: metadata: {metadata}")
-            
-            logger.debug(f"🔍 DEBUG: Accessing conversation.conversation_created_at")
-            created_at = conversation.conversation_created_at
-            logger.debug(f"🔍 DEBUG: created_at: {created_at}")
-            
-            logger.debug(f"🔍 DEBUG: Accessing conversation.conversation_updated_at")
-            updated_at = conversation.conversation_updated_at
-            logger.debug(f"🔍 DEBUG: updated_at: {updated_at}")
-            
-            logger.debug(f"🔍 DEBUG: Accessing conversation.last_message_at")
-            last_message_at = conversation.last_message_at
-            logger.debug(f"🔍 DEBUG: last_message_at: {last_message_at}")
-            
-            logger.debug(f"🔍 DEBUG: Creating ConversationResponseDto")
+            # Use database column names directly to avoid property access that might trigger lazy loading
             return ConversationResponseDto(
-                conversation_id=conv_id,
-                user_id=user_id,  # Use DB column directly
-                bot_id=bot_id,    # Use DB column directly
-                title=title,      # Use DB column directly
-                description=None,  # No description field in current schema
-                status=status_enum,  # Convert status directly
-                metadata=metadata,
-                created_at=created_at,    # Use DB column directly
-                updated_at=updated_at,    # Use DB column directly
-                last_message_at=last_message_at,
+                conversation_id=conversation.conversation_id,
+                user_id=conversation.conversation_user_id,
+                bot_id=conversation.conversation_bot_id,
+                title=conversation.conversation_title,
+                description=None,  # Not supported in database schema
+                status=ConversationStatus(conversation.conversation_status),
+                metadata=conversation.custom_metadata,
+                created_at=conversation.conversation_created_at,
+                updated_at=conversation.conversation_updated_at,
+                last_message_at=conversation.last_message_at,
                 message_count=message_count
             )
         except Exception as e:
-            logger.error(f"❌ DEBUG: Error during DTO creation: {type(e)} - {str(e)}")
+            logger.error(f"❌ Error creating conversation DTO: {e}")
+            raise
             raise
     
     def _conversation_with_messages_to_dto(self, conversation: Conversation) -> ConversationWithMessagesDto:

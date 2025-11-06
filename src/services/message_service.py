@@ -35,29 +35,52 @@ class MessageService:
     async def create_message(self, conversation_id: str, message_data: MessageCreateDto) -> MessageResponseDto:
         """Create a new message"""
         logger.info(f"📝 Creating message in conversation: {conversation_id}")
+        logger.debug(f"🔍 DEBUG MESSAGE_SERVICE: Input data - sender_type: {message_data.sender_type}, sender_id: {message_data.sender_id}, message_type: {message_data.message_type}")
         
         try:
             # Verify conversation exists
             conversation = await self.conversation_repo.get_by_id(conversation_id)
             if not conversation:
+                logger.error(f"❌ DEBUG MESSAGE_SERVICE: Conversation not found: {conversation_id}")
                 raise ValueError(f"Conversation {conversation_id} not found")
+            
+            logger.debug(f"✅ DEBUG MESSAGE_SERVICE: Conversation found: {conversation_id}")
             
             # Get parent message ID (last message in conversation for threading)
             last_message = await self.message_repo.get_last_message(conversation_id)
             parent_message_id = last_message.message_id if last_message else None
+            logger.debug(f"🔍 DEBUG MESSAGE_SERVICE: Parent message ID: {parent_message_id}")
             
-            # Create message
+            # DIAGNOSTIC: Log field mapping before Message creation
+            logger.debug(f"🔍 DEBUG MESSAGE_SERVICE: About to create Message with:")
+            logger.debug(f"  - conversation_id: {conversation_id}")
+            logger.debug(f"  - parent_message_id: {parent_message_id}")
+            logger.debug(f"  - sender_type (maps to message_role): {message_data.sender_type}")
+            logger.debug(f"  - sender_id (maps to message_bot_id): {message_data.sender_id}")
+            logger.debug(f"  - message_type: {message_data.message_type}")
+            logger.debug(f"  - content length: {len(message_data.content) if message_data.content else 0}")
+            
+            # CRITICAL ISSUE DETECTION: Check if sender_type=user but sender_id will go to message_bot_id
+            # Log message creation details
+            logger.debug(f"✅ Creating message: sender_type={message_data.sender_type}, sender_id={message_data.sender_id}, type={message_data.message_type}")
+            # Create message with proper field mapping
+            logger.debug(f"Creating Message instance...")
             message = Message(
                 conversation_id=conversation_id,
-                parent_message_id=parent_message_id,  # This will be set by trigger too
+                parent_message_id=parent_message_id,
                 sender_type=message_data.sender_type,
-                sender_id=message_data.sender_id,
-                message_type=message_data.message_type,
+                message_type=message_data.message_type,  # Now properly stored in database
                 content=message_data.content,
                 custom_metadata=message_data.metadata
             )
             
+            # Set sender_id properly based on sender_type (this will use our fixed properties)
+            message.sender_id = message_data.sender_id
+            
+            logger.debug(f"Message fields: type={message.message_type}, user_id={message.message_user_id}, bot_id={message.message_bot_id}")
+            
             saved_message = await self.message_repo.save(message)
+            logger.info(f"✅ Message saved: {saved_message.message_id}")
             
             # Update conversation's last message time
             await self.conversation_repo.update_last_message_time(
@@ -72,6 +95,7 @@ class MessageService:
         except Exception as e:
             await self.session.rollback()
             logger.error(f"❌ Failed to create message: {e}")
+            logger.error(f"Exception details: {repr(e)}")
             raise
     
     async def get_message_by_id(self, message_id: str, include_documents: bool = False) -> Optional[MessageResponseDto]:
@@ -295,11 +319,11 @@ class MessageService:
             document = Document(
                 message_id=message_id,
                 file_name=document_data.file_name,
-                file_type=document_data.file_type,
+                # file_type removed - it's a computed property from mime_type
                 file_size=document_data.file_size,
-                file_url=document_data.file_url,
                 mime_type=document_data.mime_type,
-                custom_metadata=document_data.metadata
+                content=document_data.content,
+                uploaded_by=document_data.uploaded_by
             )
             
             saved_document = await self.document_repo.save(document)
@@ -493,9 +517,9 @@ class MessageService:
             file_name=document.file_name,
             file_type=document.file_type,
             file_size=document.file_size,
-            file_url=document.file_url,
             mime_type=document.mime_type,
-            metadata=document.custom_metadata,
+            content=document.content,
+            uploaded_by=document.uploaded_by,
             created_at=document.created_at
         )
     

@@ -64,36 +64,21 @@ class UserWithProfileDto(UserResponseDto):
 
 # User Profile DTOs
 class UserProfileCreateDto(BaseDto):
-    first_name: Optional[str] = Field(None, max_length=100)
-    last_name: Optional[str] = Field(None, max_length=100)
-    display_name: Optional[str] = Field(None, max_length=150)
+    """DTO for creating user profiles - only includes fields that exist in database"""
     bio: Optional[str] = Field(None, max_length=1000)
     avatar_url: Optional[str] = Field(None, max_length=500)
-    date_of_birth: Optional[datetime] = None
-    location: Optional[str] = Field(None, max_length=200)
-    website: Optional[str] = Field(None, max_length=300)
 
 class UserProfileUpdateDto(BaseDto):
-    first_name: Optional[str] = Field(None, max_length=100)
-    last_name: Optional[str] = Field(None, max_length=100)
-    display_name: Optional[str] = Field(None, max_length=150)
+    """DTO for updating user profiles - only includes fields that exist in database"""
     bio: Optional[str] = Field(None, max_length=1000)
     avatar_url: Optional[str] = Field(None, max_length=500)
-    date_of_birth: Optional[datetime] = None
-    location: Optional[str] = Field(None, max_length=200)
-    website: Optional[str] = Field(None, max_length=300)
 
 class UserProfileResponseDto(BaseDto):
+    """DTO for profile responses - only includes fields that exist in database"""
     profile_id: str
     user_id: str
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    display_name: Optional[str] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
-    date_of_birth: Optional[datetime] = None
-    location: Optional[str] = None
-    website: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -164,13 +149,20 @@ class UserListResponseDto(BaseDto):
     has_next: bool
     has_prev: bool
 
+# Statistics DTO
+class UserStatsDto(BaseDto):
+    total_users: int = Field(..., description="Total number of users")
+    active_users: int = Field(..., description="Number of active users")
+    verified_users: int = Field(..., description="Number of verified users")
+    new_users_today: int = Field(..., description="Number of new users registered today")
+
 # Forward reference resolution
 UserWithProfileDto.model_rebuild()
 
 __all__ = [
     "UserStatus",
     "UserCreateDto",
-    "UserUpdateDto", 
+    "UserUpdateDto",
     "UserResponseDto",
     "UserWithProfileDto",
     "UserProfileCreateDto",
@@ -183,5 +175,6 @@ __all__ = [
     "PasswordChangeDto",
     "PasswordResetRequestDto",
     "PasswordResetDto",
-    "UserListResponseDto"
+    "UserListResponseDto",
+    "UserStatsDto"
 ]

@@ -13,7 +13,7 @@ from services.user_service import UserService
 from datalayer.model.dto.auth_dto import (
     UserCreateDto, UserUpdateDto, UserResponseDto, UserWithProfileDto,
     LoginDto, PasswordChangeDto, PasswordResetRequestDto,
-    PasswordResetDto, UserListResponseDto, UserStatus
+    PasswordResetDto, UserListResponseDto, UserStatus, UserStatsDto
 )
 
 logger = logging.getLogger(__name__)
@@ -120,6 +120,7 @@ async def get_current_user(
 
 @router.get(
     "/stats",
+    response_model=UserStatsDto,
     summary="Get user statistics",
     description="Get user statistics and metrics"
 )
@@ -275,20 +276,15 @@ async def deactivate_user(
         logger.error(f"❌ API: Failed to deactivate user: {e}")
         raise HTTPException(status_code=500, detail="Failed to deactivate user")
 
-@router.get(
-    "/",
-    response_model=UserListResponseDto,
-    summary="Search users",
-    description="Search users with filters and pagination"
-)
-async def search_users(
-    query: Optional[str] = Query(None, description="Search query"),
-    status: Optional[UserStatus] = Query(None, description="User status filter"),
-    limit: int = Query(20, ge=1, le=200, description="Number of users to return"),
-    offset: int = Query(0, ge=0, description="Number of users to skip"),
-    user_service: UserService = Depends(get_user_service)
+# Helper function to avoid code duplication
+async def _search_users_impl(
+    query: Optional[str] = None,
+    status: Optional[UserStatus] = None,
+    limit: int = 20,
+    offset: int = 0,
+    user_service: UserService = None
 ):
-    """Search users"""
+    """Implementation for search users"""
     logger.info(f"🚀 API: Search users requested: query='{query}', status={status}")
     
     try:
@@ -316,6 +312,39 @@ async def search_users(
     except Exception as e:
         logger.error(f"❌ API: Failed to search users: {e}")
         raise HTTPException(status_code=500, detail="Failed to search users")
+
+@router.get(
+    "/",
+    response_model=UserListResponseDto,
+    summary="Search users",
+    description="Search users with filters and pagination"
+)
+async def search_users(
+    query: Optional[str] = Query(None, description="Search query"),
+    status: Optional[UserStatus] = Query(None, description="User status filter"),
+    limit: int = Query(20, ge=1, le=200, description="Number of users to return"),
+    offset: int = Query(0, ge=0, description="Number of users to skip"),
+    user_service: UserService = Depends(get_user_service)
+):
+    """Search users (without trailing slash)"""
+    return await _search_users_impl(query, status, limit, offset, user_service)
+
+@router.get(
+    "",
+    response_model=UserListResponseDto,
+    summary="Search users",
+    description="Search users with filters and pagination",
+    include_in_schema=False  # Hide duplicate from OpenAPI docs
+)
+async def search_users_no_slash(
+    query: Optional[str] = Query(None, description="Search query"),
+    status: Optional[UserStatus] = Query(None, description="User status filter"),
+    limit: int = Query(20, ge=1, le=200, description="Number of users to return"),
+    offset: int = Query(0, ge=0, description="Number of users to skip"),
+    user_service: UserService = Depends(get_user_service)
+):
+    """Search users (with trailing slash)"""
+    return await _search_users_impl(query, status, limit, offset, user_service)
 
 
 __all__ = ["router"]

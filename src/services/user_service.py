@@ -13,7 +13,7 @@ from datalayer.repository.user_repository import UserRepository, UserProfileRepo
 from datalayer.model.sqlalchemy_models import User, UserProfile, UserSettings
 from datalayer.model.dto.auth_dto import (
     UserCreateDto, UserUpdateDto, UserResponseDto, UserWithProfileDto,
-    UserStatus, LoginDto, PasswordChangeDto, UserListResponseDto
+    UserStatus, LoginDto, PasswordChangeDto, UserListResponseDto, UserStatsDto
 )
 
 logger = logging.getLogger(__name__)
@@ -171,9 +171,9 @@ class UserService:
             if update_data.phone_number is not None:
                 user.phone_number = update_data.phone_number
             if update_data.status is not None:
-                user.status = update_data.status
+                user.status = update_data.status.value
             
-            user.updated_at = datetime.utcnow()
+            user.user_updated_at = datetime.utcnow()
             
             updated_user = await self.user_repo.save(user)
             await self.session.commit()
@@ -203,7 +203,7 @@ class UserService:
             # Hash new password
             new_password_hash = self._hash_password(password_data.new_password)
             user.password_hash = new_password_hash
-            user.updated_at = datetime.utcnow()
+            user.user_updated_at = datetime.utcnow()
             
             await self.user_repo.save(user)
             await self.session.commit()
@@ -225,8 +225,8 @@ class UserService:
             if not user:
                 return False
             
-            user.status = UserStatus.INACTIVE
-            user.updated_at = datetime.utcnow()
+            user.status = UserStatus.INACTIVE.value
+            user.user_updated_at = datetime.utcnow()
             
             await self.user_repo.save(user)
             await self.session.commit()
@@ -249,7 +249,7 @@ class UserService:
                 return False
             
             user.is_verified = True
-            user.updated_at = datetime.utcnow()
+            user.user_updated_at = datetime.utcnow()
             
             await self.user_repo.save(user)
             await self.session.commit()
@@ -318,13 +318,13 @@ class UserService:
             logger.error(f"❌ Failed to get users by status: {e}")
             raise
     
-    async def get_user_stats(self) -> Dict[str, Any]:
+    async def get_user_stats(self) -> UserStatsDto:
         """Get user statistics"""
         logger.debug("📊 Getting user statistics")
         
         try:
             stats = await self.user_repo.get_user_stats()
-            return stats
+            return UserStatsDto(**stats)
             
         except Exception as e:
             logger.error(f"❌ Failed to get user stats: {e}")

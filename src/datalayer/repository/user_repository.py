@@ -133,14 +133,38 @@ class UserRepository(AsyncBaseRepository[User]):
     
     async def get_user_stats(self) -> Dict[str, Any]:
         """Get user statistics"""
+        from datetime import datetime, timedelta
+        
+        # Total users count
         total_stmt = select(func.count(User.user_id))
         
+        # Active users count (status = 'active')
+        active_stmt = select(func.count(User.user_id)).where(User.status == 'active')
+        
+        # Verified users count (is_verified = True)
+        verified_stmt = select(func.count(User.user_id)).where(User.is_verified == True)
+        
+        # New users today count (created today)
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start + timedelta(days=1)
+        new_today_stmt = select(func.count(User.user_id)).where(
+            and_(
+                User.user_created_at >= today_start,
+                User.user_created_at < today_end
+            )
+        )
+        
+        # Execute all queries
         total_result = await self.session.execute(total_stmt)
+        active_result = await self.session.execute(active_stmt)
+        verified_result = await self.session.execute(verified_stmt)
+        new_today_result = await self.session.execute(new_today_stmt)
         
         return {
             "total_users": total_result.scalar() or 0,
-            "active_users": total_result.scalar() or 0,  # Simplified for now
-            "verified_users": total_result.scalar() or 0,  # Simplified for now
+            "active_users": active_result.scalar() or 0,
+            "verified_users": verified_result.scalar() or 0,
+            "new_users_today": new_today_result.scalar() or 0,
         }
 
 class UserProfileRepository(AsyncBaseRepository[UserProfile]):

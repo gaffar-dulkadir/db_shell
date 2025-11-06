@@ -40,18 +40,12 @@ def get_bot_service(session: AsyncSession = Depends(get_postgres_session)) -> Bo
     return BotService(session)
 
 # Bot Category Endpoints
-@categories_router.post(
-    "/",
-    response_model=BotCategoryResponseDto,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create bot category",
-    description="Create a new bot category (admin only)"
-)
-async def create_category(
+# Helper functions for categories
+async def _create_category_impl(
     category_data: BotCategoryCreateDto,
-    bot_service: BotService = Depends(get_bot_service)
+    bot_service: BotService
 ):
-    """Create bot category"""
+    """Implementation for create category"""
     logger.info(f"🚀 API: Create category requested: {category_data.name}")
     
     try:
@@ -66,6 +60,52 @@ async def create_category(
         logger.error(f"❌ API: Category creation failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create category: {str(e)}")
 
+async def _get_active_categories_impl(
+    limit: int = 100,
+    offset: int = 0,
+    bot_service: BotService = None
+):
+    """Implementation for get active categories"""
+    logger.info("🚀 API: Get active categories requested")
+    
+    try:
+        categories = await bot_service.get_active_categories(limit, offset)
+        logger.info(f"✅ API: Active categories retrieved: {len(categories)} categories")
+        return categories
+        
+    except Exception as e:
+        logger.error(f"❌ API: Failed to get active categories: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get active categories")
+
+@categories_router.post(
+    "/",
+    response_model=BotCategoryResponseDto,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create bot category",
+    description="Create a new bot category (admin only)"
+)
+async def create_category(
+    category_data: BotCategoryCreateDto,
+    bot_service: BotService = Depends(get_bot_service)
+):
+    """Create bot category (without trailing slash)"""
+    return await _create_category_impl(category_data, bot_service)
+
+@categories_router.post(
+    "",
+    response_model=BotCategoryResponseDto,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create bot category",
+    description="Create a new bot category (admin only)",
+    include_in_schema=False
+)
+async def create_category_no_slash(
+    category_data: BotCategoryCreateDto,
+    bot_service: BotService = Depends(get_bot_service)
+):
+    """Create bot category (with trailing slash)"""
+    return await _create_category_impl(category_data, bot_service)
+
 @categories_router.get(
     "/",
     response_model=List[BotCategoryResponseDto],
@@ -77,17 +117,23 @@ async def get_active_categories(
     offset: int = Query(0, ge=0, description="Number of categories to skip"),
     bot_service: BotService = Depends(get_bot_service)
 ):
-    """Get active categories"""
-    logger.info("🚀 API: Get active categories requested")
-    
-    try:
-        categories = await bot_service.get_active_categories(limit, offset)
-        logger.info(f"✅ API: Active categories retrieved: {len(categories)} categories")
-        return categories
-        
-    except Exception as e:
-        logger.error(f"❌ API: Failed to get active categories: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get active categories")
+    """Get active categories (without trailing slash)"""
+    return await _get_active_categories_impl(limit, offset, bot_service)
+
+@categories_router.get(
+    "",
+    response_model=List[BotCategoryResponseDto],
+    summary="Get active categories",
+    description="Get all active bot categories",
+    include_in_schema=False
+)
+async def get_active_categories_no_slash(
+    limit: int = Query(100, ge=1, le=200, description="Number of categories to return"),
+    offset: int = Query(0, ge=0, description="Number of categories to skip"),
+    bot_service: BotService = Depends(get_bot_service)
+):
+    """Get active categories (with trailing slash)"""
+    return await _get_active_categories_impl(limit, offset, bot_service)
 
 @categories_router.get(
     "/{category_id}",
@@ -158,19 +204,13 @@ async def search_categories(
         raise HTTPException(status_code=500, detail="Failed to search categories")
 
 # Bot Endpoints
-@bots_router.post(
-    "/",
-    response_model=BotResponseDto,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create bot",
-    description="Create a new bot"
-)
-async def create_bot(
+# Helper functions for bots
+async def _create_bot_impl(
     bot_data: BotCreateDto,
-    created_by: Optional[str] = Query(None, description="Creator user ID"),
-    bot_service: BotService = Depends(get_bot_service)
+    created_by: Optional[str] = None,
+    bot_service: BotService = None
 ):
-    """Create bot"""
+    """Implementation for create bot"""
     logger.info(f"🚀 API: Create bot requested: {bot_data.name}")
     
     try:
@@ -185,26 +225,20 @@ async def create_bot(
         logger.error(f"❌ API: Bot creation failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to create bot")
 
-@bots_router.get(
-    "/",
-    response_model=BotListResponseDto,
-    summary="Search bots",
-    description="Search bots with advanced filters"
-)
-async def search_bots(
-    query: Optional[str] = Query(None, description="Search query"),
-    category_id: Optional[str] = Query(None, description="Filter by category"),
-    status: Optional[BotStatus] = Query(None, description="Filter by status"),
-    is_featured: Optional[bool] = Query(None, description="Filter featured bots"),
-    is_premium: Optional[bool] = Query(None, description="Filter premium bots"),
-    min_rating: Optional[float] = Query(None, ge=0, le=5, description="Minimum rating"),
-    sort_by: Optional[str] = Query("name", description="Sort field"),
-    sort_order: Optional[str] = Query("asc", description="Sort order: asc, desc"),
-    limit: int = Query(20, ge=1, le=200, description="Number of bots to return"),
-    offset: int = Query(0, ge=0, description="Number of bots to skip"),
-    bot_service: BotService = Depends(get_bot_service)
+async def _search_bots_impl(
+    query: Optional[str] = None,
+    category_id: Optional[str] = None,
+    status: Optional[BotStatus] = None,
+    is_featured: Optional[bool] = None,
+    is_premium: Optional[bool] = None,
+    min_rating: Optional[float] = None,
+    sort_by: Optional[str] = "name",
+    sort_order: Optional[str] = "asc",
+    limit: int = 20,
+    offset: int = 0,
+    bot_service: BotService = None
 ):
-    """Search bots"""
+    """Implementation for search bots"""
     logger.info(f"🚀 API: Search bots requested: query='{query}'")
     
     try:
@@ -231,6 +265,88 @@ async def search_bots(
     except Exception as e:
         logger.error(f"❌ API: Failed to search bots: {e}")
         raise HTTPException(status_code=500, detail="Failed to search bots")
+
+@bots_router.post(
+    "/",
+    response_model=BotResponseDto,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create bot",
+    description="Create a new bot"
+)
+async def create_bot(
+    bot_data: BotCreateDto,
+    created_by: Optional[str] = Query(None, description="Creator user ID"),
+    bot_service: BotService = Depends(get_bot_service)
+):
+    """Create bot (without trailing slash)"""
+    return await _create_bot_impl(bot_data, created_by, bot_service)
+
+@bots_router.post(
+    "",
+    response_model=BotResponseDto,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create bot",
+    description="Create a new bot",
+    include_in_schema=False
+)
+async def create_bot_no_slash(
+    bot_data: BotCreateDto,
+    created_by: Optional[str] = Query(None, description="Creator user ID"),
+    bot_service: BotService = Depends(get_bot_service)
+):
+    """Create bot (with trailing slash)"""
+    return await _create_bot_impl(bot_data, created_by, bot_service)
+
+@bots_router.get(
+    "/",
+    response_model=BotListResponseDto,
+    summary="Search bots",
+    description="Search bots with advanced filters"
+)
+async def search_bots(
+    query: Optional[str] = Query(None, description="Search query"),
+    category_id: Optional[str] = Query(None, description="Filter by category"),
+    status: Optional[BotStatus] = Query(None, description="Filter by status"),
+    is_featured: Optional[bool] = Query(None, description="Filter featured bots"),
+    is_premium: Optional[bool] = Query(None, description="Filter premium bots"),
+    min_rating: Optional[float] = Query(None, ge=0, le=5, description="Minimum rating"),
+    sort_by: Optional[str] = Query("name", description="Sort field"),
+    sort_order: Optional[str] = Query("asc", description="Sort order: asc, desc"),
+    limit: int = Query(20, ge=1, le=200, description="Number of bots to return"),
+    offset: int = Query(0, ge=0, description="Number of bots to skip"),
+    bot_service: BotService = Depends(get_bot_service)
+):
+    """Search bots (without trailing slash)"""
+    return await _search_bots_impl(
+        query, category_id, status, is_featured, is_premium,
+        min_rating, sort_by, sort_order, limit, offset, bot_service
+    )
+
+@bots_router.get(
+    "",
+    response_model=BotListResponseDto,
+    summary="Search bots",
+    description="Search bots with advanced filters",
+    include_in_schema=False
+)
+async def search_bots_no_slash(
+    query: Optional[str] = Query(None, description="Search query"),
+    category_id: Optional[str] = Query(None, description="Filter by category"),
+    status: Optional[BotStatus] = Query(None, description="Filter by status"),
+    is_featured: Optional[bool] = Query(None, description="Filter featured bots"),
+    is_premium: Optional[bool] = Query(None, description="Filter premium bots"),
+    min_rating: Optional[float] = Query(None, ge=0, le=5, description="Minimum rating"),
+    sort_by: Optional[str] = Query("name", description="Sort field"),
+    sort_order: Optional[str] = Query("asc", description="Sort order: asc, desc"),
+    limit: int = Query(20, ge=1, le=200, description="Number of bots to return"),
+    offset: int = Query(0, ge=0, description="Number of bots to skip"),
+    bot_service: BotService = Depends(get_bot_service)
+):
+    """Search bots (with trailing slash)"""
+    return await _search_bots_impl(
+        query, category_id, status, is_featured, is_premium,
+        min_rating, sort_by, sort_order, limit, offset, bot_service
+    )
 
 @bots_router.get(
     "/{bot_id}",

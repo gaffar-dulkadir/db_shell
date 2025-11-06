@@ -27,7 +27,7 @@ class MessageRepository(AsyncBaseRepository[Message]):
         include_deleted: bool = False
     ) -> List[Message]:
         """Get messages by conversation ID"""
-        stmt = select(Message).where(Message.conversation_id == conversation_id)
+        stmt = select(Message).where(Message.message_conversation_id == conversation_id)
         
         if not include_deleted:
             stmt = stmt.where(Message.is_deleted == False)
@@ -70,7 +70,7 @@ class MessageRepository(AsyncBaseRepository[Message]):
         """Get message thread for a conversation"""
         stmt = (
             select(Message)
-            .where(Message.conversation_id == conversation_id)
+            .where(Message.message_conversation_id == conversation_id)
             .where(Message.is_deleted == False)
         )
         
@@ -99,7 +99,7 @@ class MessageRepository(AsyncBaseRepository[Message]):
         
         stmt = (
             select(Message)
-            .where(Message.conversation_id == conversation_id)
+            .where(Message.message_conversation_id == conversation_id)
             .where(Message.created_at >= since_time)
             .where(Message.is_deleted == False)
             .order_by(desc(Message.created_at))
@@ -121,16 +121,16 @@ class MessageRepository(AsyncBaseRepository[Message]):
         """Search messages by content"""
         stmt = (
             select(Message)
-            .where(Message.conversation_id == conversation_id)
+            .where(Message.message_conversation_id == conversation_id)
             .where(Message.content.ilike(f"%{query}%"))
             .where(Message.is_deleted == False)
         )
         
         if message_type:
-            stmt = stmt.where(Message.message_type == message_type)
+            stmt = stmt.where(Message.message_type_db == message_type.value if hasattr(message_type, 'value') else str(message_type))
         
         if sender_type:
-            stmt = stmt.where(Message.sender_type == sender_type)
+            stmt = stmt.where(Message.message_role == sender_type)
         
         stmt = (
             stmt.order_by(desc(Message.created_at))
@@ -145,7 +145,7 @@ class MessageRepository(AsyncBaseRepository[Message]):
         """Get the last message in a conversation"""
         stmt = (
             select(Message)
-            .where(Message.conversation_id == conversation_id)
+            .where(Message.message_conversation_id == conversation_id)
             .where(Message.is_deleted == False)
             .order_by(desc(Message.created_at))
             .limit(1)
@@ -155,7 +155,7 @@ class MessageRepository(AsyncBaseRepository[Message]):
     
     async def count_by_conversation(self, conversation_id: str, include_deleted: bool = False) -> int:
         """Count messages in a conversation"""
-        stmt = select(func.count(Message.message_id)).where(Message.conversation_id == conversation_id)
+        stmt = select(func.count(Message.message_id)).where(Message.message_conversation_id == conversation_id)
         
         if not include_deleted:
             stmt = stmt.where(Message.is_deleted == False)
@@ -167,8 +167,8 @@ class MessageRepository(AsyncBaseRepository[Message]):
         """Count messages by sender type in a conversation"""
         stmt = (
             select(func.count(Message.message_id))
-            .where(Message.conversation_id == conversation_id)
-            .where(Message.sender_type == sender_type)
+            .where(Message.message_conversation_id == conversation_id)
+            .where(Message.message_role == sender_type)
             .where(Message.is_deleted == False)
         )
         result = await self.session.execute(stmt)
@@ -223,7 +223,7 @@ class DocumentRepository(AsyncBaseRepository[Document]):
         """Get documents by message ID"""
         stmt = (
             select(Document)
-            .where(Document.message_id == message_id)
+            .where(Document.document_message_id == message_id)
             .order_by(asc(Document.created_at))
         )
         result = await self.session.execute(stmt)
@@ -233,8 +233,8 @@ class DocumentRepository(AsyncBaseRepository[Document]):
         """Get documents by conversation ID"""
         stmt = (
             select(Document)
-            .join(Message, Document.message_id == Message.message_id)
-            .where(Message.conversation_id == conversation_id)
+            .join(Message, Document.document_message_id == Message.message_id)
+            .where(Message.message_conversation_id == conversation_id)
             .order_by(desc(Document.created_at))
             .limit(limit)
             .offset(offset)
@@ -251,9 +251,9 @@ class DocumentRepository(AsyncBaseRepository[Document]):
         """Get documents by file type in a conversation"""
         stmt = (
             select(Document)
-            .join(Message, Document.message_id == Message.message_id)
-            .where(Message.conversation_id == conversation_id)
-            .where(Document.file_type == file_type)
+            .join(Message, Document.document_message_id == Message.message_id)
+            .where(Message.message_conversation_id == conversation_id)
+            .where(Document.document_mime_type.like(f"{file_type}%"))
             .order_by(desc(Document.created_at))
             .limit(limit)
         )
@@ -271,13 +271,13 @@ class DocumentRepository(AsyncBaseRepository[Document]):
         """Search documents by filename"""
         stmt = (
             select(Document)
-            .join(Message, Document.message_id == Message.message_id)
-            .where(Message.conversation_id == conversation_id)
-            .where(Document.file_name.ilike(f"%{query}%"))
+            .join(Message, Document.document_message_id == Message.message_id)
+            .where(Message.message_conversation_id == conversation_id)
+            .where(Document.document_filename.ilike(f"%{query}%"))
         )
         
         if file_type:
-            stmt = stmt.where(Document.file_type == file_type)
+            stmt = stmt.where(Document.document_mime_type.like(f"{file_type}%"))
         
         stmt = (
             stmt.order_by(desc(Document.created_at))
@@ -292,8 +292,8 @@ class DocumentRepository(AsyncBaseRepository[Document]):
         """Count documents in a conversation"""
         stmt = (
             select(func.count(Document.document_id))
-            .join(Message, Document.message_id == Message.message_id)
-            .where(Message.conversation_id == conversation_id)
+            .join(Message, Document.document_message_id == Message.message_id)
+            .where(Message.message_conversation_id == conversation_id)
         )
         result = await self.session.execute(stmt)
         return result.scalar() or 0
@@ -301,22 +301,22 @@ class DocumentRepository(AsyncBaseRepository[Document]):
     async def get_total_file_size(self, conversation_id: str) -> int:
         """Get total file size for a conversation"""
         stmt = (
-            select(func.sum(Document.file_size))
-            .join(Message, Document.message_id == Message.message_id)
-            .where(Message.conversation_id == conversation_id)
+            select(func.sum(Document.document_file_size))
+            .join(Message, Document.document_message_id == Message.message_id)
+            .where(Message.message_conversation_id == conversation_id)
         )
         result = await self.session.execute(stmt)
         return result.scalar() or 0
 
 class MemoryHistoryRepository(AsyncBaseRepository[MemoryHistory]):
-    """Repository for MemoryHistory operations"""
+    """Repository for MemoryHistory operations - simplified for existing schema"""
     
     def __init__(self, session: AsyncSession):
         super().__init__(session, MemoryHistory)
     
     async def get_by_conversation(
-        self, 
-        conversation_id: str, 
+        self,
+        conversation_id: str,
         memory_type: Optional[str] = None,
         limit: int = 100,
         offset: int = 0
@@ -324,19 +324,13 @@ class MemoryHistoryRepository(AsyncBaseRepository[MemoryHistory]):
         """Get memory entries by conversation"""
         stmt = select(MemoryHistory).where(MemoryHistory.conversation_id == conversation_id)
         
+        # Since we only have date_time and memory_history columns, we'll filter by content if memory_type is specified
         if memory_type:
-            stmt = stmt.where(MemoryHistory.memory_type == memory_type)
-        
-        # Filter out expired memories
-        stmt = stmt.where(
-            or_(
-                MemoryHistory.expires_at.is_(None),
-                MemoryHistory.expires_at > datetime.utcnow()
-            )
-        )
+            # Filter by JSON content that contains the memory_type
+            stmt = stmt.where(MemoryHistory.memory_history.ilike(f'%"type":"{memory_type}"%'))
         
         stmt = (
-            stmt.order_by(desc(MemoryHistory.priority), desc(MemoryHistory.updated_at))
+            stmt.order_by(desc(MemoryHistory.date_time))
             .limit(limit)
             .offset(offset)
         )
@@ -345,17 +339,13 @@ class MemoryHistoryRepository(AsyncBaseRepository[MemoryHistory]):
         return list(result.scalars().all())
     
     async def get_by_key(self, conversation_id: str, memory_key: str) -> Optional[MemoryHistory]:
-        """Get memory by conversation and key"""
+        """Get memory by conversation and key (search in JSON content)"""
         stmt = (
             select(MemoryHistory)
             .where(MemoryHistory.conversation_id == conversation_id)
-            .where(MemoryHistory.memory_key == memory_key)
-            .where(
-                or_(
-                    MemoryHistory.expires_at.is_(None),
-                    MemoryHistory.expires_at > datetime.utcnow()
-                )
-            )
+            .where(MemoryHistory.memory_history.ilike(f'%"key":"{memory_key}"%'))
+            .order_by(desc(MemoryHistory.date_time))
+            .limit(1)
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
@@ -372,25 +362,14 @@ class MemoryHistoryRepository(AsyncBaseRepository[MemoryHistory]):
         stmt = (
             select(MemoryHistory)
             .where(MemoryHistory.conversation_id == conversation_id)
-            .where(
-                or_(
-                    MemoryHistory.memory_key.ilike(f"%{query}%"),
-                    MemoryHistory.memory_value.ilike(f"%{query}%")
-                )
-            )
-            .where(
-                or_(
-                    MemoryHistory.expires_at.is_(None),
-                    MemoryHistory.expires_at > datetime.utcnow()
-                )
-            )
+            .where(MemoryHistory.memory_history.ilike(f"%{query}%"))
         )
         
         if memory_type:
-            stmt = stmt.where(MemoryHistory.memory_type == memory_type)
+            stmt = stmt.where(MemoryHistory.memory_history.ilike(f'%"type":"{memory_type}"%'))
         
         stmt = (
-            stmt.order_by(desc(MemoryHistory.priority), desc(MemoryHistory.updated_at))
+            stmt.order_by(desc(MemoryHistory.date_time))
             .limit(limit)
             .offset(offset)
         )
@@ -399,54 +378,59 @@ class MemoryHistoryRepository(AsyncBaseRepository[MemoryHistory]):
         return list(result.scalars().all())
     
     async def get_high_priority_memories(
-        self, 
-        conversation_id: str, 
+        self,
+        conversation_id: str,
         min_priority: int = 5,
         limit: int = 20
     ) -> List[MemoryHistory]:
-        """Get high priority memories"""
+        """Get high priority memories (filter by JSON content)"""
         stmt = (
             select(MemoryHistory)
             .where(MemoryHistory.conversation_id == conversation_id)
-            .where(MemoryHistory.priority >= min_priority)
-            .where(
-                or_(
-                    MemoryHistory.expires_at.is_(None),
-                    MemoryHistory.expires_at > datetime.utcnow()
-                )
-            )
-            .order_by(desc(MemoryHistory.priority), desc(MemoryHistory.updated_at))
+            .where(MemoryHistory.memory_history.ilike(f'%"priority":%'))
+            .order_by(desc(MemoryHistory.date_time))
             .limit(limit)
         )
         
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        memories = list(result.scalars().all())
+        
+        # Filter by priority in Python since we can't do complex JSON queries easily
+        filtered_memories = []
+        for memory in memories:
+            if memory.priority >= min_priority:
+                filtered_memories.append(memory)
+                if len(filtered_memories) >= limit:
+                    break
+        
+        return filtered_memories
     
     async def cleanup_expired_memories(self) -> int:
-        """Remove expired memories"""
-        stmt = (
-            delete(MemoryHistory)
-            .where(MemoryHistory.expires_at <= datetime.utcnow())
-        )
+        """Remove expired memories (implemented in Python since expires_at is in JSON)"""
+        stmt = select(MemoryHistory)
         result = await self.session.execute(stmt)
-        await self.session.flush()
-        return result.rowcount
+        all_memories = list(result.scalars().all())
+        
+        deleted_count = 0
+        current_time = datetime.utcnow()
+        
+        for memory in all_memories:
+            expires_at = memory.expires_at
+            if expires_at and expires_at <= current_time:
+                await self.session.delete(memory)
+                deleted_count += 1
+        
+        if deleted_count > 0:
+            await self.session.flush()
+        
+        return deleted_count
     
     async def count_by_conversation(self, conversation_id: str, memory_type: Optional[str] = None) -> int:
         """Count memories in a conversation"""
-        stmt = (
-            select(func.count(MemoryHistory.memory_id))
-            .where(MemoryHistory.conversation_id == conversation_id)
-            .where(
-                or_(
-                    MemoryHistory.expires_at.is_(None),
-                    MemoryHistory.expires_at > datetime.utcnow()
-                )
-            )
-        )
+        stmt = select(func.count(MemoryHistory.id)).where(MemoryHistory.conversation_id == conversation_id)
         
         if memory_type:
-            stmt = stmt.where(MemoryHistory.memory_type == memory_type)
+            stmt = stmt.where(MemoryHistory.memory_history.ilike(f'%"type":"{memory_type}"%'))
         
         result = await self.session.execute(stmt)
         return result.scalar() or 0
@@ -460,42 +444,27 @@ class MemoryHistoryRepository(AsyncBaseRepository[MemoryHistory]):
         priority: int = 1,
         expires_at: Optional[datetime] = None
     ) -> MemoryHistory:
-        """Insert or update memory entry"""
-        # Try to find existing memory
+        """Insert or update memory entry using simplified schema"""
+        # Try to find existing memory by key
         existing = await self.get_by_key(conversation_id, memory_key)
         
         if existing:
-            # Update existing memory
-            stmt = (
-                update(MemoryHistory)
-                .where(MemoryHistory.memory_id == existing.memory_id)
-                .values(
-                    memory_value=memory_value,
-                    memory_type=memory_type,
-                    priority=priority,
-                    expires_at=expires_at,
-                    updated_at=datetime.utcnow()
-                )
-            )
-            await self.session.execute(stmt)
+            # Update existing memory with new structured data
+            existing.set_structured_memory(memory_key, memory_value, memory_type, priority, expires_at)
+            updated_memory = await self.save(existing)
             await self.session.flush()
-            
-            # Return updated memory
-            return await self.get_by_id(existing.memory_id)
+            return updated_memory
         else:
-            # Create new memory
+            # Create new memory with structured data
             new_memory = MemoryHistory(
                 conversation_id=conversation_id,
-                memory_key=memory_key,
-                memory_value=memory_value,
-                memory_type=memory_type,
-                priority=priority,
-                expires_at=expires_at
+                date_time=datetime.utcnow()
             )
+            new_memory.set_structured_memory(memory_key, memory_value, memory_type, priority, expires_at)
             return await self.save(new_memory)
 
 __all__ = [
     "MessageRepository",
-    "DocumentRepository",
+    "DocumentRepository",  
     "MemoryHistoryRepository"
 ]

@@ -28,19 +28,13 @@ def get_profile_service(session: AsyncSession = Depends(get_postgres_session)) -
     """Profile service dependency"""
     return ProfileService(session)
 
-@router.post(
-    "/",
-    response_model=UserProfileResponseDto,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create user profile",
-    description="Create a new user profile"
-)
-async def create_profile(
+# Helper functions to avoid code duplication
+async def _create_profile_impl(
     user_id: str,
     profile_data: UserProfileCreateDto,
-    profile_service: ProfileService = Depends(get_profile_service)
+    profile_service: ProfileService
 ):
-    """Create user profile"""
+    """Implementation for create profile"""
     logger.info(f"🚀 API: Create profile requested for user: {user_id}")
     
     try:
@@ -55,17 +49,11 @@ async def create_profile(
         logger.error(f"❌ API: Profile creation failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to create profile")
 
-@router.get(
-    "/",
-    response_model=UserProfileResponseDto,
-    summary="Get user profile",
-    description="Get user profile information"
-)
-async def get_profile(
+async def _get_profile_impl(
     user_id: str,
-    profile_service: ProfileService = Depends(get_profile_service)
+    profile_service: ProfileService
 ):
-    """Get user profile"""
+    """Implementation for get profile"""
     logger.info(f"🚀 API: Get profile requested for user: {user_id}")
     
     try:
@@ -82,18 +70,12 @@ async def get_profile(
         logger.error(f"❌ API: Failed to get profile: {e}")
         raise HTTPException(status_code=500, detail="Failed to get profile")
 
-@router.put(
-    "/",
-    response_model=UserProfileResponseDto,
-    summary="Update user profile",
-    description="Update user profile information"
-)
-async def update_profile(
+async def _update_profile_impl(
     user_id: str,
     update_data: UserProfileUpdateDto,
-    profile_service: ProfileService = Depends(get_profile_service)
+    profile_service: ProfileService
 ):
-    """Update user profile"""
+    """Implementation for update profile"""
     logger.info(f"🚀 API: Update profile requested for user: {user_id}")
     
     try:
@@ -109,6 +91,93 @@ async def update_profile(
     except Exception as e:
         logger.error(f"❌ API: Failed to update profile: {e}")
         raise HTTPException(status_code=500, detail="Failed to update profile")
+
+@router.post(
+    "/",
+    response_model=UserProfileResponseDto,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create user profile",
+    description="Create a new user profile"
+)
+async def create_profile(
+    user_id: str,
+    profile_data: UserProfileCreateDto,
+    profile_service: ProfileService = Depends(get_profile_service)
+):
+    """Create user profile (without trailing slash)"""
+    return await _create_profile_impl(user_id, profile_data, profile_service)
+
+@router.post(
+    "",
+    response_model=UserProfileResponseDto,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create user profile",
+    description="Create a new user profile",
+    include_in_schema=False
+)
+async def create_profile_no_slash(
+    user_id: str,
+    profile_data: UserProfileCreateDto,
+    profile_service: ProfileService = Depends(get_profile_service)
+):
+    """Create user profile (with trailing slash)"""
+    return await _create_profile_impl(user_id, profile_data, profile_service)
+
+@router.get(
+    "/",
+    response_model=UserProfileResponseDto,
+    summary="Get user profile",
+    description="Get user profile information"
+)
+async def get_profile(
+    user_id: str,
+    profile_service: ProfileService = Depends(get_profile_service)
+):
+    """Get user profile (without trailing slash)"""
+    return await _get_profile_impl(user_id, profile_service)
+
+@router.get(
+    "",
+    response_model=UserProfileResponseDto,
+    summary="Get user profile",
+    description="Get user profile information",
+    include_in_schema=False
+)
+async def get_profile_no_slash(
+    user_id: str,
+    profile_service: ProfileService = Depends(get_profile_service)
+):
+    """Get user profile (with trailing slash)"""
+    return await _get_profile_impl(user_id, profile_service)
+
+@router.put(
+    "/",
+    response_model=UserProfileResponseDto,
+    summary="Update user profile",
+    description="Update user profile information"
+)
+async def update_profile(
+    user_id: str,
+    update_data: UserProfileUpdateDto,
+    profile_service: ProfileService = Depends(get_profile_service)
+):
+    """Update user profile (without trailing slash)"""
+    return await _update_profile_impl(user_id, update_data, profile_service)
+
+@router.put(
+    "",
+    response_model=UserProfileResponseDto,
+    summary="Update user profile",
+    description="Update user profile information",
+    include_in_schema=False
+)
+async def update_profile_no_slash(
+    user_id: str,
+    update_data: UserProfileUpdateDto,
+    profile_service: ProfileService = Depends(get_profile_service)
+):
+    """Update user profile (with trailing slash)"""
+    return await _update_profile_impl(user_id, update_data, profile_service)
 
 @router.patch(
     "/avatar",
@@ -138,16 +207,11 @@ async def update_avatar(
         logger.error(f"❌ API: Failed to update avatar: {e}")
         raise HTTPException(status_code=500, detail="Failed to update avatar")
 
-@router.delete(
-    "/",
-    summary="Delete user profile",
-    description="Delete user profile"
-)
-async def delete_profile(
+async def _delete_profile_impl(
     user_id: str,
-    profile_service: ProfileService = Depends(get_profile_service)
+    profile_service: ProfileService
 ):
-    """Delete user profile"""
+    """Implementation for delete profile"""
     logger.info(f"🚀 API: Delete profile requested for user: {user_id}")
     
     try:
@@ -163,6 +227,31 @@ async def delete_profile(
     except Exception as e:
         logger.error(f"❌ API: Failed to delete profile: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete profile")
+
+@router.delete(
+    "/",
+    summary="Delete user profile",
+    description="Delete user profile"
+)
+async def delete_profile(
+    user_id: str,
+    profile_service: ProfileService = Depends(get_profile_service)
+):
+    """Delete user profile (without trailing slash)"""
+    return await _delete_profile_impl(user_id, profile_service)
+
+@router.delete(
+    "",
+    summary="Delete user profile",
+    description="Delete user profile",
+    include_in_schema=False
+)
+async def delete_profile_no_slash(
+    user_id: str,
+    profile_service: ProfileService = Depends(get_profile_service)
+):
+    """Delete user profile (with trailing slash)"""
+    return await _delete_profile_impl(user_id, profile_service)
 
 # Search profiles endpoint (without user_id prefix)
 search_router = APIRouter(

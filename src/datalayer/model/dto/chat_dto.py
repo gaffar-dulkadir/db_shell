@@ -109,9 +109,10 @@ class DocumentCreateDto(BaseDto):
     file_name: str = Field(..., min_length=1, max_length=255)
     file_type: str = Field(..., min_length=1, max_length=50)
     file_size: int = Field(..., gt=0, description="File size in bytes")
-    file_url: str = Field(..., min_length=1, max_length=500)
     mime_type: str = Field(..., min_length=1, max_length=100)
-    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
+    content: str = Field(..., min_length=1, description="Document content")
+    uploaded_by: str = Field(..., description="User ID who uploaded the document")
+    # Note: file_url and metadata removed - not in database schema
 
 class DocumentResponseDto(BaseDto):
     document_id: str
@@ -119,9 +120,9 @@ class DocumentResponseDto(BaseDto):
     file_name: str
     file_type: str
     file_size: int
-    file_url: str
     mime_type: str
-    metadata: Optional[Dict[str, Any]] = None
+    content: str
+    uploaded_by: str
     created_at: datetime
 
 class DocumentListResponseDto(BaseDto):

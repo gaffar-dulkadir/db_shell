@@ -32,20 +32,14 @@ def get_message_service(session: AsyncSession = Depends(get_postgres_session)) -
     """Message service dependency"""
     return MessageService(session)
 
-@router.post(
-    "/",
-    response_model=MessageResponseDto,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create message",
-    description="Create a new message in the conversation"
-)
-async def create_message(
+# Helper functions to avoid code duplication
+async def _create_message_impl(
     user_id: str,
     conversation_id: str,
     message_data: MessageCreateDto,
-    message_service: MessageService = Depends(get_message_service)
+    message_service: MessageService
 ):
-    """Create a new message"""
+    """Implementation for create message"""
     logger.info(f"🚀 API: Create message requested in conversation: {conversation_id}")
     
     try:
@@ -59,6 +53,61 @@ async def create_message(
     except Exception as e:
         logger.error(f"❌ API: Message creation failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to create message")
+
+async def _get_conversation_messages_impl(
+    user_id: str,
+    conversation_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    include_deleted: bool = False,
+    message_service: MessageService = None
+):
+    """Implementation for get conversation messages"""
+    logger.info(f"🚀 API: Get messages requested for conversation: {conversation_id}")
+    
+    try:
+        messages = await message_service.get_conversation_messages(
+            conversation_id, limit, offset, include_deleted
+        )
+        logger.info(f"✅ API: Messages retrieved for conversation: {conversation_id}, count: {len(messages.messages)}")
+        return messages
+        
+    except Exception as e:
+        logger.error(f"❌ API: Failed to get messages: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get messages")
+
+@router.post(
+    "/",
+    response_model=MessageResponseDto,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create message",
+    description="Create a new message in the conversation"
+)
+async def create_message(
+    user_id: str,
+    conversation_id: str,
+    message_data: MessageCreateDto,
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Create a new message (without trailing slash)"""
+    return await _create_message_impl(user_id, conversation_id, message_data, message_service)
+
+@router.post(
+    "",
+    response_model=MessageResponseDto,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create message",
+    description="Create a new message in the conversation",
+    include_in_schema=False
+)
+async def create_message_no_slash(
+    user_id: str,
+    conversation_id: str,
+    message_data: MessageCreateDto,
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Create a new message (with trailing slash)"""
+    return await _create_message_impl(user_id, conversation_id, message_data, message_service)
 
 @router.get(
     "/",
@@ -74,34 +123,40 @@ async def get_conversation_messages(
     include_deleted: bool = Query(False, description="Include deleted messages"),
     message_service: MessageService = Depends(get_message_service)
 ):
-    """Get conversation messages"""
-    logger.info(f"🚀 API: Get messages requested for conversation: {conversation_id}")
-    
-    try:
-        messages = await message_service.get_conversation_messages(
-            conversation_id, limit, offset, include_deleted
-        )
-        logger.info(f"✅ API: Messages retrieved for conversation: {conversation_id}, count: {len(messages.messages)}")
-        return messages
-        
-    except Exception as e:
-        logger.error(f"❌ API: Failed to get messages: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get messages")
+    """Get conversation messages (without trailing slash)"""
+    return await _get_conversation_messages_impl(
+        user_id, conversation_id, limit, offset, include_deleted, message_service
+    )
 
 @router.get(
-    "/{message_id}",
-    response_model=MessageResponseDto,
-    summary="Get message",
-    description="Get message by ID"
+    "",
+    response_model=MessageListResponseDto,
+    summary="Get conversation messages",
+    description="Get messages for a conversation with pagination",
+    include_in_schema=False
 )
-async def get_message(
+async def get_conversation_messages_no_slash(
+    user_id: str,
+    conversation_id: str,
+    limit: int = Query(50, ge=1, le=200, description="Number of messages to return"),
+    offset: int = Query(0, ge=0, description="Number of messages to skip"),
+    include_deleted: bool = Query(False, description="Include deleted messages"),
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Get conversation messages (with trailing slash)"""
+    return await _get_conversation_messages_impl(
+        user_id, conversation_id, limit, offset, include_deleted, message_service
+    )
+
+# Helper functions for individual message operations
+async def _get_message_impl(
     user_id: str,
     conversation_id: str,
     message_id: str,
-    include_documents: bool = Query(False, description="Include message documents"),
-    message_service: MessageService = Depends(get_message_service)
+    include_documents: bool = False,
+    message_service: MessageService = None
 ):
-    """Get message by ID"""
+    """Implementation for get message"""
     logger.info(f"🚀 API: Get message requested: {message_id}")
     
     try:
@@ -122,20 +177,14 @@ async def get_message(
         logger.error(f"❌ API: Failed to get message: {e}")
         raise HTTPException(status_code=500, detail="Failed to get message")
 
-@router.put(
-    "/{message_id}",
-    response_model=MessageResponseDto,
-    summary="Update message",
-    description="Update message content and metadata"
-)
-async def update_message(
+async def _update_message_impl(
     user_id: str,
     conversation_id: str,
     message_id: str,
     update_data: MessageUpdateDto,
-    message_service: MessageService = Depends(get_message_service)
+    message_service: MessageService
 ):
-    """Update message"""
+    """Implementation for update message"""
     logger.info(f"🚀 API: Update message requested: {message_id}")
     
     try:
@@ -163,6 +212,72 @@ async def update_message(
     except Exception as e:
         logger.error(f"❌ API: Failed to update message: {e}")
         raise HTTPException(status_code=500, detail="Failed to update message")
+
+@router.get(
+    "/{message_id}",
+    response_model=MessageResponseDto,
+    summary="Get message",
+    description="Get message by ID"
+)
+async def get_message(
+    user_id: str,
+    conversation_id: str,
+    message_id: str,
+    include_documents: bool = Query(False, description="Include message documents"),
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Get message by ID (without trailing slash)"""
+    return await _get_message_impl(user_id, conversation_id, message_id, include_documents, message_service)
+
+@router.get(
+    "/{message_id}/",
+    response_model=MessageResponseDto,
+    summary="Get message",
+    description="Get message by ID",
+    include_in_schema=False
+)
+async def get_message_with_slash(
+    user_id: str,
+    conversation_id: str,
+    message_id: str,
+    include_documents: bool = Query(False, description="Include message documents"),
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Get message by ID (with trailing slash)"""
+    return await _get_message_impl(user_id, conversation_id, message_id, include_documents, message_service)
+
+@router.put(
+    "/{message_id}",
+    response_model=MessageResponseDto,
+    summary="Update message",
+    description="Update message content and metadata"
+)
+async def update_message(
+    user_id: str,
+    conversation_id: str,
+    message_id: str,
+    update_data: MessageUpdateDto,
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Update message (without trailing slash)"""
+    return await _update_message_impl(user_id, conversation_id, message_id, update_data, message_service)
+
+@router.put(
+    "/{message_id}/",
+    response_model=MessageResponseDto,
+    summary="Update message",
+    description="Update message content and metadata",
+    include_in_schema=False
+)
+async def update_message_with_slash(
+    user_id: str,
+    conversation_id: str,
+    message_id: str,
+    update_data: MessageUpdateDto,
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Update message (with trailing slash)"""
+    return await _update_message_impl(user_id, conversation_id, message_id, update_data, message_service)
 
 @router.delete(
     "/{message_id}",
@@ -204,25 +319,20 @@ async def delete_message(
         logger.error(f"❌ API: Failed to delete message: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete message")
 
-@router.get(
-    "/search",
-    response_model=MessageListResponseDto,
-    summary="Search messages",
-    description="Search messages in the conversation"
-)
-async def search_messages(
+# Helper functions for search, recent, and stats endpoints
+async def _search_messages_impl(
     user_id: str,
     conversation_id: str,
-    query: Optional[str] = Query(None, description="Search query"),
-    message_type: Optional[MessageType] = Query(None, description="Filter by message type"),
-    sender_type: Optional[str] = Query(None, description="Filter by sender type (user/bot)"),
-    start_date: Optional[str] = Query(None, description="Start date filter (ISO format)"),
-    end_date: Optional[str] = Query(None, description="End date filter (ISO format)"),
-    limit: int = Query(20, ge=1, le=200, description="Number of messages to return"),
-    offset: int = Query(0, ge=0, description="Number of messages to skip"),
-    message_service: MessageService = Depends(get_message_service)
+    query: Optional[str] = None,
+    message_type: Optional[MessageType] = None,
+    sender_type: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+    message_service: MessageService = None
 ):
-    """Search messages"""
+    """Implementation for search messages"""
     logger.info(f"🚀 API: Search messages requested for conversation: {conversation_id}")
     
     try:
@@ -259,6 +369,91 @@ async def search_messages(
         logger.error(f"❌ API: Failed to search messages: {e}")
         raise HTTPException(status_code=500, detail="Failed to search messages")
 
+async def _get_recent_messages_impl(
+    user_id: str,
+    conversation_id: str,
+    hours: int = 24,
+    limit: int = 50,
+    message_service: MessageService = None
+):
+    """Implementation for get recent messages"""
+    logger.info(f"🚀 API: Get recent messages requested for conversation: {conversation_id}")
+    
+    try:
+        messages = await message_service.get_recent_messages(conversation_id, hours, limit)
+        logger.info(f"✅ API: Recent messages retrieved for conversation: {conversation_id}")
+        return messages
+        
+    except Exception as e:
+        logger.error(f"❌ API: Failed to get recent messages: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get recent messages")
+
+async def _get_message_stats_impl(
+    user_id: str,
+    conversation_id: str,
+    message_service: MessageService = None
+):
+    """Implementation for get message stats"""
+    logger.info(f"🚀 API: Get message stats requested for conversation: {conversation_id}")
+    
+    try:
+        stats = await message_service.get_message_stats(conversation_id)
+        logger.info(f"✅ API: Message stats retrieved for conversation: {conversation_id}")
+        return stats
+        
+    except Exception as e:
+        logger.error(f"❌ API: Failed to get message stats: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get message statistics")
+
+@router.get(
+    "/search",
+    response_model=MessageListResponseDto,
+    summary="Search messages",
+    description="Search messages in the conversation"
+)
+async def search_messages(
+    user_id: str,
+    conversation_id: str,
+    query: Optional[str] = Query(None, description="Search query"),
+    message_type: Optional[MessageType] = Query(None, description="Filter by message type"),
+    sender_type: Optional[str] = Query(None, description="Filter by sender type (user/bot)"),
+    start_date: Optional[str] = Query(None, description="Start date filter (ISO format)"),
+    end_date: Optional[str] = Query(None, description="End date filter (ISO format)"),
+    limit: int = Query(20, ge=1, le=200, description="Number of messages to return"),
+    offset: int = Query(0, ge=0, description="Number of messages to skip"),
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Search messages (without trailing slash)"""
+    return await _search_messages_impl(
+        user_id, conversation_id, query, message_type, sender_type,
+        start_date, end_date, limit, offset, message_service
+    )
+
+@router.get(
+    "/search/",
+    response_model=MessageListResponseDto,
+    summary="Search messages",
+    description="Search messages in the conversation",
+    include_in_schema=False
+)
+async def search_messages_with_slash(
+    user_id: str,
+    conversation_id: str,
+    query: Optional[str] = Query(None, description="Search query"),
+    message_type: Optional[MessageType] = Query(None, description="Filter by message type"),
+    sender_type: Optional[str] = Query(None, description="Filter by sender type (user/bot)"),
+    start_date: Optional[str] = Query(None, description="Start date filter (ISO format)"),
+    end_date: Optional[str] = Query(None, description="End date filter (ISO format)"),
+    limit: int = Query(20, ge=1, le=200, description="Number of messages to return"),
+    offset: int = Query(0, ge=0, description="Number of messages to skip"),
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Search messages (with trailing slash)"""
+    return await _search_messages_impl(
+        user_id, conversation_id, query, message_type, sender_type,
+        start_date, end_date, limit, offset, message_service
+    )
+
 @router.get(
     "/recent",
     response_model=List[MessageResponseDto],
@@ -272,17 +467,25 @@ async def get_recent_messages(
     limit: int = Query(50, ge=1, le=200, description="Number of messages to return"),
     message_service: MessageService = Depends(get_message_service)
 ):
-    """Get recent messages"""
-    logger.info(f"🚀 API: Get recent messages requested for conversation: {conversation_id}")
-    
-    try:
-        messages = await message_service.get_recent_messages(conversation_id, hours, limit)
-        logger.info(f"✅ API: Recent messages retrieved for conversation: {conversation_id}")
-        return messages
-        
-    except Exception as e:
-        logger.error(f"❌ API: Failed to get recent messages: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get recent messages")
+    """Get recent messages (without trailing slash)"""
+    return await _get_recent_messages_impl(user_id, conversation_id, hours, limit, message_service)
+
+@router.get(
+    "/recent/",
+    response_model=List[MessageResponseDto],
+    summary="Get recent messages",
+    description="Get recent messages in the conversation",
+    include_in_schema=False
+)
+async def get_recent_messages_with_slash(
+    user_id: str,
+    conversation_id: str,
+    hours: int = Query(24, ge=1, le=168, description="Number of hours to look back"),
+    limit: int = Query(50, ge=1, le=200, description="Number of messages to return"),
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Get recent messages (with trailing slash)"""
+    return await _get_recent_messages_impl(user_id, conversation_id, hours, limit, message_service)
 
 @router.get(
     "/stats",
@@ -295,34 +498,33 @@ async def get_message_stats(
     conversation_id: str,
     message_service: MessageService = Depends(get_message_service)
 ):
-    """Get message statistics"""
-    logger.info(f"🚀 API: Get message stats requested for conversation: {conversation_id}")
-    
-    try:
-        stats = await message_service.get_message_stats(conversation_id)
-        logger.info(f"✅ API: Message stats retrieved for conversation: {conversation_id}")
-        return stats
-        
-    except Exception as e:
-        logger.error(f"❌ API: Failed to get message stats: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get message statistics")
+    """Get message statistics (without trailing slash)"""
+    return await _get_message_stats_impl(user_id, conversation_id, message_service)
 
-# Document endpoints
-@router.post(
-    "/{message_id}/documents",
-    response_model=DocumentResponseDto,
-    status_code=status.HTTP_201_CREATED,
-    summary="Add document to message",
-    description="Add a document attachment to a message"
+@router.get(
+    "/stats/",
+    response_model=MessageStatsDto,
+    summary="Get message statistics",
+    description="Get message statistics for the conversation",
+    include_in_schema=False
 )
-async def add_document_to_message(
+async def get_message_stats_with_slash(
+    user_id: str,
+    conversation_id: str,
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Get message statistics (with trailing slash)"""
+    return await _get_message_stats_impl(user_id, conversation_id, message_service)
+
+# Helper function for document operations
+async def _add_document_to_message_impl(
     user_id: str,
     conversation_id: str,
     message_id: str,
     document_data: DocumentCreateDto,
-    message_service: MessageService = Depends(get_message_service)
+    message_service: MessageService
 ):
-    """Add document to message"""
+    """Implementation for add document to message"""
     logger.info(f"🚀 API: Add document requested for message: {message_id}")
     
     try:
@@ -344,19 +546,13 @@ async def add_document_to_message(
         logger.error(f"❌ API: Failed to add document: {e}")
         raise HTTPException(status_code=500, detail="Failed to add document")
 
-@router.get(
-    "/{message_id}/documents",
-    response_model=List[DocumentResponseDto],
-    summary="Get message documents",
-    description="Get all documents attached to a message"
-)
-async def get_message_documents(
+async def _get_message_documents_impl(
     user_id: str,
     conversation_id: str,
     message_id: str,
-    message_service: MessageService = Depends(get_message_service)
+    message_service: MessageService
 ):
-    """Get message documents"""
+    """Implementation for get message documents"""
     logger.info(f"🚀 API: Get documents requested for message: {message_id}")
     
     try:
@@ -375,12 +571,99 @@ async def get_message_documents(
         logger.error(f"❌ API: Failed to get message documents: {e}")
         raise HTTPException(status_code=500, detail="Failed to get message documents")
 
+# Document endpoints
+@router.post(
+    "/{message_id}/documents",
+    response_model=DocumentResponseDto,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add document to message",
+    description="Add a document attachment to a message"
+)
+async def add_document_to_message(
+    user_id: str,
+    conversation_id: str,
+    message_id: str,
+    document_data: DocumentCreateDto,
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Add document to message (without trailing slash)"""
+    return await _add_document_to_message_impl(user_id, conversation_id, message_id, document_data, message_service)
+
+@router.post(
+    "/{message_id}/documents/",
+    response_model=DocumentResponseDto,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add document to message",
+    description="Add a document attachment to a message",
+    include_in_schema=False
+)
+async def add_document_to_message_with_slash(
+    user_id: str,
+    conversation_id: str,
+    message_id: str,
+    document_data: DocumentCreateDto,
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Add document to message (with trailing slash)"""
+    return await _add_document_to_message_impl(user_id, conversation_id, message_id, document_data, message_service)
+
+@router.get(
+    "/{message_id}/documents",
+    response_model=List[DocumentResponseDto],
+    summary="Get message documents",
+    description="Get all documents attached to a message"
+)
+async def get_message_documents(
+    user_id: str,
+    conversation_id: str,
+    message_id: str,
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Get message documents (without trailing slash)"""
+    return await _get_message_documents_impl(user_id, conversation_id, message_id, message_service)
+
+@router.get(
+    "/{message_id}/documents/",
+    response_model=List[DocumentResponseDto],
+    summary="Get message documents",
+    description="Get all documents attached to a message",
+    include_in_schema=False
+)
+async def get_message_documents_with_slash(
+    user_id: str,
+    conversation_id: str,
+    message_id: str,
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Get message documents (with trailing slash)"""
+    return await _get_message_documents_impl(user_id, conversation_id, message_id, message_service)
+
 # Document routes for conversation-level access
 documents_router = APIRouter(
     prefix="/users/{user_id}/conversations/{conversation_id}/documents",
     tags=["Documents"],
     responses={404: {"description": "Not found"}}
 )
+
+# Helper function for documents
+async def _get_conversation_documents_impl(
+    user_id: str,
+    conversation_id: str,
+    limit: int = 100,
+    offset: int = 0,
+    message_service: MessageService = None
+):
+    """Implementation for get conversation documents"""
+    logger.info(f"🚀 API: Get documents requested for conversation: {conversation_id}")
+    
+    try:
+        documents = await message_service.get_conversation_documents(conversation_id, limit, offset)
+        logger.info(f"✅ API: Documents retrieved for conversation: {conversation_id}")
+        return documents
+        
+    except Exception as e:
+        logger.error(f"❌ API: Failed to get conversation documents: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get conversation documents")
 
 @documents_router.get(
     "/",
@@ -395,17 +678,25 @@ async def get_conversation_documents(
     offset: int = Query(0, ge=0, description="Number of documents to skip"),
     message_service: MessageService = Depends(get_message_service)
 ):
-    """Get conversation documents"""
-    logger.info(f"🚀 API: Get documents requested for conversation: {conversation_id}")
-    
-    try:
-        documents = await message_service.get_conversation_documents(conversation_id, limit, offset)
-        logger.info(f"✅ API: Documents retrieved for conversation: {conversation_id}")
-        return documents
-        
-    except Exception as e:
-        logger.error(f"❌ API: Failed to get conversation documents: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get conversation documents")
+    """Get conversation documents (without trailing slash)"""
+    return await _get_conversation_documents_impl(user_id, conversation_id, limit, offset, message_service)
+
+@documents_router.get(
+    "",
+    response_model=DocumentListResponseDto,
+    summary="Get conversation documents",
+    description="Get all documents in the conversation with pagination",
+    include_in_schema=False
+)
+async def get_conversation_documents_no_slash(
+    user_id: str,
+    conversation_id: str,
+    limit: int = Query(100, ge=1, le=200, description="Number of documents to return"),
+    offset: int = Query(0, ge=0, description="Number of documents to skip"),
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Get conversation documents (with trailing slash)"""
+    return await _get_conversation_documents_impl(user_id, conversation_id, limit, offset, message_service)
 
 # Memory endpoints
 memory_router = APIRouter(
@@ -413,6 +704,50 @@ memory_router = APIRouter(
     tags=["Memory History"],
     responses={404: {"description": "Not found"}}
 )
+
+# Helper functions for memory endpoints
+async def _add_memory_impl(
+    user_id: str,
+    conversation_id: str,
+    memory_data: MemoryHistoryCreateDto,
+    message_service: MessageService
+):
+    """Implementation for add memory"""
+    logger.info(f"🚀 API: Add memory requested for conversation: {conversation_id}")
+    
+    try:
+        memory = await message_service.add_memory(conversation_id, memory_data)
+        logger.info(f"✅ API: Memory added successfully: {memory.memory_id}")
+        return memory
+        
+    except ValueError as e:
+        logger.warning(f"⚠️ API: Memory creation validation error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"❌ API: Failed to add memory: {e}")
+        raise HTTPException(status_code=500, detail="Failed to add memory")
+
+async def _get_conversation_memories_impl(
+    user_id: str,
+    conversation_id: str,
+    memory_type: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    message_service: MessageService = None
+):
+    """Implementation for get conversation memories"""
+    logger.info(f"🚀 API: Get memories requested for conversation: {conversation_id}")
+    
+    try:
+        memories = await message_service.get_conversation_memories(
+            conversation_id, memory_type, limit, offset
+        )
+        logger.info(f"✅ API: Memories retrieved for conversation: {conversation_id}")
+        return memories
+        
+    except Exception as e:
+        logger.error(f"❌ API: Failed to get conversation memories: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get conversation memories")
 
 @memory_router.post(
     "/",
@@ -427,20 +762,25 @@ async def add_memory(
     memory_data: MemoryHistoryCreateDto,
     message_service: MessageService = Depends(get_message_service)
 ):
-    """Add memory to conversation"""
-    logger.info(f"🚀 API: Add memory requested for conversation: {conversation_id}")
-    
-    try:
-        memory = await message_service.add_memory(conversation_id, memory_data)
-        logger.info(f"✅ API: Memory added successfully: {memory.memory_id}")
-        return memory
-        
-    except ValueError as e:
-        logger.warning(f"⚠️ API: Memory creation validation error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"❌ API: Failed to add memory: {e}")
-        raise HTTPException(status_code=500, detail="Failed to add memory")
+    """Add memory to conversation (without trailing slash)"""
+    return await _add_memory_impl(user_id, conversation_id, memory_data, message_service)
+
+@memory_router.post(
+    "",
+    response_model=MemoryHistoryResponseDto,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add memory",
+    description="Add a memory entry to the conversation",
+    include_in_schema=False
+)
+async def add_memory_no_slash(
+    user_id: str,
+    conversation_id: str,
+    memory_data: MemoryHistoryCreateDto,
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Add memory to conversation (with trailing slash)"""
+    return await _add_memory_impl(user_id, conversation_id, memory_data, message_service)
 
 @memory_router.get(
     "/",
@@ -456,18 +796,29 @@ async def get_conversation_memories(
     offset: int = Query(0, ge=0, description="Number of memories to skip"),
     message_service: MessageService = Depends(get_message_service)
 ):
-    """Get conversation memories"""
-    logger.info(f"🚀 API: Get memories requested for conversation: {conversation_id}")
-    
-    try:
-        memories = await message_service.get_conversation_memories(
-            conversation_id, memory_type, limit, offset
-        )
-        logger.info(f"✅ API: Memories retrieved for conversation: {conversation_id}")
-        return memories
-        
-    except Exception as e:
-        logger.error(f"❌ API: Failed to get conversation memories: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get conversation memories")
+    """Get conversation memories (without trailing slash)"""
+    return await _get_conversation_memories_impl(
+        user_id, conversation_id, memory_type, limit, offset, message_service
+    )
+
+@memory_router.get(
+    "",
+    response_model=MemoryHistoryListResponseDto,
+    summary="Get conversation memories",
+    description="Get memory entries for the conversation",
+    include_in_schema=False
+)
+async def get_conversation_memories_no_slash(
+    user_id: str,
+    conversation_id: str,
+    memory_type: Optional[str] = Query(None, description="Filter by memory type"),
+    limit: int = Query(100, ge=1, le=200, description="Number of memories to return"),
+    offset: int = Query(0, ge=0, description="Number of memories to skip"),
+    message_service: MessageService = Depends(get_message_service)
+):
+    """Get conversation memories (with trailing slash)"""
+    return await _get_conversation_memories_impl(
+        user_id, conversation_id, memory_type, limit, offset, message_service
+    )
 
 __all__ = ["router", "documents_router", "memory_router"]

@@ -27,19 +27,13 @@ def get_settings_service(session: AsyncSession = Depends(get_postgres_session)) 
     """Settings service dependency"""
     return SettingsService(session)
 
-@router.post(
-    "/",
-    response_model=UserSettingsResponseDto,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create user settings",
-    description="Create new user settings"
-)
-async def create_settings(
+# Helper functions to avoid code duplication
+async def _create_settings_impl(
     user_id: str,
     settings_data: UserSettingsCreateDto,
-    settings_service: SettingsService = Depends(get_settings_service)
+    settings_service: SettingsService
 ):
-    """Create user settings"""
+    """Implementation for create settings"""
     logger.info(f"🚀 API: Create settings requested for user: {user_id}")
     
     try:
@@ -54,17 +48,11 @@ async def create_settings(
         logger.error(f"❌ API: Settings creation failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to create settings")
 
-@router.get(
-    "/",
-    response_model=UserSettingsResponseDto,
-    summary="Get user settings",
-    description="Get user settings information"
-)
-async def get_settings(
+async def _get_settings_impl(
     user_id: str,
-    settings_service: SettingsService = Depends(get_settings_service)
+    settings_service: SettingsService
 ):
-    """Get user settings"""
+    """Implementation for get settings"""
     logger.info(f"🚀 API: Get settings requested for user: {user_id}")
     
     try:
@@ -81,18 +69,12 @@ async def get_settings(
         logger.error(f"❌ API: Failed to get settings: {e}")
         raise HTTPException(status_code=500, detail="Failed to get settings")
 
-@router.put(
-    "/",
-    response_model=UserSettingsResponseDto,
-    summary="Update user settings",
-    description="Update user settings information"
-)
-async def update_settings(
+async def _update_settings_impl(
     user_id: str,
     update_data: UserSettingsUpdateDto,
-    settings_service: SettingsService = Depends(get_settings_service)
+    settings_service: SettingsService
 ):
-    """Update user settings"""
+    """Implementation for update settings"""
     logger.info(f"🚀 API: Update settings requested for user: {user_id}")
     
     try:
@@ -108,6 +90,93 @@ async def update_settings(
     except Exception as e:
         logger.error(f"❌ API: Failed to update settings: {e}")
         raise HTTPException(status_code=500, detail="Failed to update settings")
+
+@router.post(
+    "/",
+    response_model=UserSettingsResponseDto,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create user settings",
+    description="Create new user settings"
+)
+async def create_settings(
+    user_id: str,
+    settings_data: UserSettingsCreateDto,
+    settings_service: SettingsService = Depends(get_settings_service)
+):
+    """Create user settings (without trailing slash)"""
+    return await _create_settings_impl(user_id, settings_data, settings_service)
+
+@router.post(
+    "",
+    response_model=UserSettingsResponseDto,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create user settings",
+    description="Create new user settings",
+    include_in_schema=False
+)
+async def create_settings_no_slash(
+    user_id: str,
+    settings_data: UserSettingsCreateDto,
+    settings_service: SettingsService = Depends(get_settings_service)
+):
+    """Create user settings (with trailing slash)"""
+    return await _create_settings_impl(user_id, settings_data, settings_service)
+
+@router.get(
+    "/",
+    response_model=UserSettingsResponseDto,
+    summary="Get user settings",
+    description="Get user settings information"
+)
+async def get_settings(
+    user_id: str,
+    settings_service: SettingsService = Depends(get_settings_service)
+):
+    """Get user settings (without trailing slash)"""
+    return await _get_settings_impl(user_id, settings_service)
+
+@router.get(
+    "",
+    response_model=UserSettingsResponseDto,
+    summary="Get user settings",
+    description="Get user settings information",
+    include_in_schema=False
+)
+async def get_settings_no_slash(
+    user_id: str,
+    settings_service: SettingsService = Depends(get_settings_service)
+):
+    """Get user settings (with trailing slash)"""
+    return await _get_settings_impl(user_id, settings_service)
+
+@router.put(
+    "/",
+    response_model=UserSettingsResponseDto,
+    summary="Update user settings",
+    description="Update user settings information"
+)
+async def update_settings(
+    user_id: str,
+    update_data: UserSettingsUpdateDto,
+    settings_service: SettingsService = Depends(get_settings_service)
+):
+    """Update user settings (without trailing slash)"""
+    return await _update_settings_impl(user_id, update_data, settings_service)
+
+@router.put(
+    "",
+    response_model=UserSettingsResponseDto,
+    summary="Update user settings",
+    description="Update user settings information",
+    include_in_schema=False
+)
+async def update_settings_no_slash(
+    user_id: str,
+    update_data: UserSettingsUpdateDto,
+    settings_service: SettingsService = Depends(get_settings_service)
+):
+    """Update user settings (with trailing slash)"""
+    return await _update_settings_impl(user_id, update_data, settings_service)
 
 @router.patch(
     "/notifications",
@@ -251,16 +320,11 @@ async def reset_settings(
         logger.error(f"❌ API: Failed to reset settings: {e}")
         raise HTTPException(status_code=500, detail="Failed to reset settings")
 
-@router.delete(
-    "/",
-    summary="Delete user settings",
-    description="Delete user settings"
-)
-async def delete_settings(
+async def _delete_settings_impl(
     user_id: str,
-    settings_service: SettingsService = Depends(get_settings_service)
+    settings_service: SettingsService
 ):
-    """Delete user settings"""
+    """Implementation for delete settings"""
     logger.info(f"🚀 API: Delete settings requested for user: {user_id}")
     
     try:
@@ -276,5 +340,30 @@ async def delete_settings(
     except Exception as e:
         logger.error(f"❌ API: Failed to delete settings: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete settings")
+
+@router.delete(
+    "/",
+    summary="Delete user settings",
+    description="Delete user settings"
+)
+async def delete_settings(
+    user_id: str,
+    settings_service: SettingsService = Depends(get_settings_service)
+):
+    """Delete user settings (without trailing slash)"""
+    return await _delete_settings_impl(user_id, settings_service)
+
+@router.delete(
+    "",
+    summary="Delete user settings",
+    description="Delete user settings",
+    include_in_schema=False
+)
+async def delete_settings_no_slash(
+    user_id: str,
+    settings_service: SettingsService = Depends(get_settings_service)
+):
+    """Delete user settings (with trailing slash)"""
+    return await _delete_settings_impl(user_id, settings_service)
 
 __all__ = ["router"]

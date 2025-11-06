@@ -92,35 +92,33 @@ class ProfileService:
                 logger.warning(f"⚠️ Profile not found for user: {user_id}")
                 return None
             
-            # Update fields
-            if update_data.first_name is not None:
-                profile.first_name = update_data.first_name
-            if update_data.last_name is not None:
-                profile.last_name = update_data.last_name
-            if update_data.display_name is not None:
-                profile.display_name = update_data.display_name
+            # Track which fields were updated
+            updated_fields = []
+            
+            # Update fields that exist in database schema
             if update_data.bio is not None:
                 profile.bio = update_data.bio
+                updated_fields.append(f"bio='{update_data.bio}'")
+                
             if update_data.avatar_url is not None:
                 profile.avatar_url = update_data.avatar_url
-            if update_data.date_of_birth is not None:
-                profile.date_of_birth = update_data.date_of_birth
-            if update_data.location is not None:
-                profile.location = update_data.location
-            if update_data.website is not None:
-                profile.website = update_data.website
+                updated_fields.append(f"avatar_url='{update_data.avatar_url}'")
             
-            profile.updated_at = datetime.utcnow()
-            
-            updated_profile = await self.profile_repo.save(profile)
-            await self.session.commit()
-            
-            logger.info(f"✅ Profile updated successfully for user: {user_id}")
-            return self._profile_to_dto(updated_profile)
+            # Only save if there were actual updates
+            if updated_fields:
+                profile.updated_at = datetime.utcnow()
+                updated_profile = await self.profile_repo.save(profile)
+                await self.session.commit()
+                logger.info(f"✅ Profile updated successfully for user {user_id}: {', '.join(updated_fields)}")
+                return self._profile_to_dto(updated_profile)
+            else:
+                logger.info(f"ℹ️ No fields to update for user: {user_id}")
+                # Still return the current profile even if no updates were made
+                return self._profile_to_dto(profile)
             
         except Exception as e:
             await self.session.rollback()
-            logger.error(f"❌ Failed to update profile: {e}")
+            logger.error(f"❌ Failed to update profile for user {user_id}: {type(e).__name__} - {str(e)}")
             raise
     
     async def update_avatar(self, user_id: str, avatar_url: str) -> Optional[UserProfileResponseDto]:
@@ -184,14 +182,8 @@ class ProfileService:
         return UserProfileResponseDto(
             profile_id=profile.profile_id,
             user_id=profile.user_id,
-            first_name=profile.first_name,
-            last_name=profile.last_name,
-            display_name=profile.display_name,
             bio=profile.bio,
             avatar_url=profile.avatar_url,
-            date_of_birth=profile.date_of_birth,
-            location=profile.location,
-            website=profile.website,
             created_at=profile.created_at,
             updated_at=profile.updated_at
         )

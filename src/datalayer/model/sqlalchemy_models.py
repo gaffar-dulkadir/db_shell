@@ -9,6 +9,7 @@ from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Boolean, Float,
     ForeignKey, JSON, Enum as SQLEnum, TIMESTAMP, func
 )
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
@@ -128,32 +129,8 @@ class UserProfile(Base):
         return self.user_id  # Use user_id as profile_id
     
     @property
-    def first_name(self) -> Optional[str]:
-        return None  # Not available in current schema
-    
-    @property
-    def last_name(self) -> Optional[str]:
-        return None  # Not available in current schema
-    
-    @property
-    def display_name(self) -> Optional[str]:
-        return None  # Not available in current schema
-    
-    @property
-    def date_of_birth(self) -> Optional[datetime]:
-        return None  # Not available in current schema
-    
-    @property
-    def location(self) -> Optional[str]:
-        return None  # Not available in current schema
-    
-    @property
-    def website(self) -> Optional[str]:
-        return None  # Not available in current schema
-    
-    @property
     def created_at(self) -> datetime:
-        return self.updated_at  # Use updated_at as fallback
+        return self.updated_at  # Use updated_at as fallback since created_at doesn't exist
     
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="profile")
@@ -357,6 +334,18 @@ class Message(Base):
         UUID(as_uuid=False),
         ForeignKey('marketplace.bots.bot_id', ondelete='CASCADE')
     )
+    message_user_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey('auth.users.user_id', ondelete='CASCADE'),
+        index=True
+    )
+    message_type_db: Mapped[str] = mapped_column(
+        'message_type',  # Database column name
+        String(20),
+        nullable=False,
+        default='text',
+        index=True
+    )
     content: Mapped[Optional[str]] = mapped_column(Text)
     custom_metadata: Mapped[Optional[dict]] = mapped_column(JSON)
     is_edited: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -399,15 +388,35 @@ class Message(Base):
     
     @property
     def sender_id(self) -> Optional[str]:
-        return self.message_bot_id
+        """Get sender ID based on sender type"""
+        if self.message_role == "user":
+            return self.message_user_id
+        elif self.message_role == "bot":
+            return self.message_bot_id
+        return None
     
     @sender_id.setter
     def sender_id(self, value: Optional[str]):
-        self.message_bot_id = value
+        """Set sender ID based on sender type"""
+        if self.message_role == "user":
+            self.message_user_id = value
+            self.message_bot_id = None  # Ensure bot_id is null for user messages
+        elif self.message_role == "bot":
+            self.message_bot_id = value
+            self.message_user_id = None  # Ensure user_id is null for bot messages
     
     @property
     def message_type(self) -> MessageType:
-        return MessageType.TEXT  # Default to text
+        """Get actual message type from database"""
+        try:
+            return MessageType(self.message_type_db)
+        except (ValueError, AttributeError):
+            return MessageType.TEXT  # Default fallback
+    
+    @message_type.setter
+    def message_type(self, value: MessageType):
+        """Set message type in database"""
+        self.message_type_db = value.value if hasattr(value, 'value') else str(value)
     
     # Relationships
     conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="messages")
@@ -450,8 +459,6 @@ class Document(Base):
         nullable=False,
         index=True
     )
-    file_url: Mapped[Optional[str]] = mapped_column(String(500))
-    custom_metadata: Mapped[Optional[dict]] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),
@@ -472,7 +479,7 @@ class Document(Base):
     def uploaded_by(self, value: str):
         self.document_uploaded_by = value
     
-    @property
+    @hybrid_property
     def file_name(self) -> str:
         return self.document_filename
     
@@ -480,13 +487,21 @@ class Document(Base):
     def file_name(self, value: str):
         self.document_filename = value
     
-    @property
+    @file_name.expression
+    def file_name(cls):
+        return cls.document_filename
+    
+    @hybrid_property
     def file_size(self) -> int:
         return self.document_file_size
     
     @file_size.setter
     def file_size(self, value: int):
         self.document_file_size = value
+    
+    @file_size.expression
+    def file_size(cls):
+        return cls.document_file_size
     
     @property
     def mime_type(self) -> str:
@@ -504,13 +519,17 @@ class Document(Base):
     def content(self, value: str):
         self.document_content = value
     
-    @property
+    @hybrid_property
     def message_id(self) -> str:
         return self.document_message_id
     
     @message_id.setter
     def message_id(self, value: str):
         self.document_message_id = value
+    
+    @message_id.expression
+    def message_id(cls):
+        return cls.document_message_id
     
     @property
     def file_type(self) -> str:
@@ -536,7 +555,8 @@ class MemoryHistory(Base):
     )
     date_time: Mapped[datetime] = mapped_column(
         DateTime,  # timestamp without time zone
-        nullable=False
+        nullable=False,
+        default=lambda: datetime.utcnow()
     )
     memory_history: Mapped[str] = mapped_column(Text, nullable=False)
     
@@ -547,11 +567,23 @@ class MemoryHistory(Base):
     
     @property
     def memory_key(self) -> str:
-        return "history"  # Default key
+        # Extract key from JSON if structured, otherwise use default
+        import json
+        try:
+            data = json.loads(self.memory_history)
+            return data.get('key', 'history')
+        except (json.JSONDecodeError, AttributeError):
+            return 'history'
     
     @property
     def memory_value(self) -> str:
-        return self.memory_history
+        # Extract value from JSON if structured, otherwise return raw text
+        import json
+        try:
+            data = json.loads(self.memory_history)
+            return data.get('value', self.memory_history)
+        except (json.JSONDecodeError, AttributeError):
+            return self.memory_history
     
     @memory_value.setter
     def memory_value(self, value: str):
@@ -559,15 +591,37 @@ class MemoryHistory(Base):
     
     @property
     def memory_type(self) -> str:
-        return 'context'  # Default type
+        # Extract type from JSON if structured, otherwise use default
+        import json
+        try:
+            data = json.loads(self.memory_history)
+            return data.get('type', 'context')
+        except (json.JSONDecodeError, AttributeError):
+            return 'context'
     
     @property
     def priority(self) -> int:
-        return 1  # Default priority
+        # Extract priority from JSON if structured, otherwise use default
+        import json
+        try:
+            data = json.loads(self.memory_history)
+            return data.get('priority', 1)
+        except (json.JSONDecodeError, AttributeError):
+            return 1
     
     @property
     def expires_at(self) -> Optional[datetime]:
-        return None  # Not available in current schema
+        # Extract expires_at from JSON if structured, otherwise None
+        import json
+        try:
+            data = json.loads(self.memory_history)
+            expires_str = data.get('expires_at')
+            if expires_str:
+                from datetime import datetime
+                return datetime.fromisoformat(expires_str.replace('Z', '+00:00'))
+            return None
+        except (json.JSONDecodeError, AttributeError, ValueError):
+            return None
     
     @property
     def created_at(self) -> datetime:
@@ -576,6 +630,29 @@ class MemoryHistory(Base):
     @property
     def updated_at(self) -> datetime:
         return self.date_time
+    
+    # Helper method to create structured memory JSON
+    def set_structured_memory(
+        self,
+        key: str,
+        value: str,
+        memory_type: str = 'context',
+        priority: int = 1,
+        expires_at: Optional[datetime] = None
+    ):
+        """Set structured memory data as JSON in memory_history field"""
+        import json
+        data = {
+            'key': key,
+            'value': value,
+            'type': memory_type,
+            'priority': priority
+        }
+        if expires_at:
+            data['expires_at'] = expires_at.isoformat()
+        
+        self.memory_history = json.dumps(data, ensure_ascii=False)
+        self.date_time = datetime.utcnow()
     
     # Relationships
     conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="memory_history")

@@ -88,51 +88,28 @@ def session_after_flush_listener(session, flush_context):
     """
     Session-level event listener to handle parent message setting after flush.
     This runs after the messages are inserted and have IDs.
-    """
-    import asyncio
     
+    NOTE: Since this is a sync event, we handle parent message logic
+    synchronously without async database calls to avoid greenlet issues.
+    The business logic for parent message setting is now handled in the service layer.
+    """
     try:
         # Find messages that need parent updates
         messages_to_update = [
-            obj for obj in session.new 
+            obj for obj in session.new
             if isinstance(obj, Message) and hasattr(obj, '_needs_parent_update')
         ]
         
         if messages_to_update:
-            # Create async task to handle parent message updates
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If we're in an async context, create a task
-                task = loop.create_task(_update_parent_messages(session, messages_to_update))
-                # Add callback to handle any errors
-                task.add_done_callback(lambda t: logger.error(f"Parent message update error: {t.exception()}") if t.exception() else None)
-            else:
-                # If not in async context, run synchronously
-                loop.run_until_complete(_update_parent_messages(session, messages_to_update))
+            # Log that messages were created (audit trail)
+            for message in messages_to_update:
+                logger.info(f"New message created: {message.message_id} in conversation {message.conversation_id}")
+                # Clean up the flag
+                if hasattr(message, '_needs_parent_update'):
+                    delattr(message, '_needs_parent_update')
                 
     except Exception as e:
         logger.error(f"Error in session_after_flush_listener: {e}")
-
-async def _update_parent_messages(session: AsyncSession, messages: list[Message]) -> None:
-    """
-    Helper function to update parent message IDs for a list of messages.
-    
-    Args:
-        session: Database session
-        messages: List of messages to update
-    """
-    try:
-        for message in messages:
-            if hasattr(message, '_needs_parent_update'):
-                await set_parent_message_trigger(session, message)
-                delattr(message, '_needs_parent_update')
-        
-        # Commit the parent message updates
-        await session.commit()
-        
-    except Exception as e:
-        logger.error(f"Error updating parent messages: {e}")
-        await session.rollback()
 
 # Manual trigger function that can be called from services
 async def manually_set_parent_message(session: AsyncSession, message_id: str) -> bool:

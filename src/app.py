@@ -36,6 +36,7 @@ app = FastAPI(
     openapi_url="/openapi.json",
     docs_url="/docs",
     redoc_url="/redoc",
+    redirect_slashes=False,  # Disable automatic redirect for trailing slashes
 )
 
 app.add_middleware(
@@ -252,22 +253,16 @@ async def global_exception_handler(request, exc):
             "error": str(exc) if os.getenv("APP_ENV") == "development" else "An unexpected error occurred"
         }
     )
-
-# Root endpoint
-@app.get(
-    "/",
-    tags=["Root"],
-    summary="API Root",
-    description="Get basic API information"
-)
-async def root():
-    """API root endpoint"""
+# Helper function for root endpoint
+async def _root_impl():
+    """Implementation for root endpoint"""
     return {
         "service": "Chat Marketplace Service",
         "version": "2.0.0",
         "description": "REST API for WhatsApp-like chat marketplace with comprehensive user, conversation, message, and bot management",
         "docs_url": "/docs",
         "health_url": "/health",
+        "trailing_slash_support": "Both with and without trailing slashes are supported",
         "endpoints": {
             "users": "/users",
             "user_profiles": "/users/{user_id}/profile",
@@ -281,6 +276,20 @@ async def root():
             "admin": "/admin/*"
         }
     }
+
+# Root endpoints - both with and without trailing slash
+@app.get(
+    "/",
+    tags=["Root"],
+    summary="API Root",
+    description="Get basic API information"
+)
+async def root():
+    """API root endpoint (without trailing slash)"""
+    return await _root_impl()
+
+# Note: FastAPI doesn't support empty string paths well,
+# so trailing slash support is handled by redirect_slashes=False setting
 
 if __name__ == "__main__":
     print("🚀 Starting Chat Marketplace Service...")
